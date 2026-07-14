@@ -8,6 +8,8 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 
 * One-click Nowhere installation
 * Upgrade to the latest upstream Nowhere release
+* Install a specific Nowhere release version
+* Interactive version selection from GitHub releases
 * Interactive configuration menu
 * Non-interactive CLI mode for automated deployment
 * systemd service support
@@ -63,6 +65,7 @@ Then select the action from the menu:
 9. Show share URI
 10. Install QR code support
 11. Change language
+12. Install specific version
 0. Exit
 ```
 
@@ -92,6 +95,27 @@ This generates a Portal URL similar to:
 ```text
 portal://change-me@:2077?tls=1&net=mix&spec=nightfall
 ```
+
+## Install a Specific Version
+
+Install a specific upstream release from the command line:
+
+```bash
+sudo ./install.sh \
+  --install \
+  --version v1.2.3 \
+  --key change-me \
+  --port 2077 \
+  --lang en
+```
+
+Upgrade or downgrade to a specific version:
+
+```bash
+sudo ./install.sh --upgrade --version v1.2.3 --lang en
+```
+
+You can also select a version interactively by choosing menu item `12. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
 
 ## TLS Modes
 
@@ -168,6 +192,7 @@ sudo ./install.sh [options]
 | `--tls <1\|2>`              | Set TLS mode, default `1`            |
 | `--cert <path>`             | Certificate path when `tls=2`        |
 | `--keyfile <path>`          | Private key path when `tls=2`        |
+| `-v`, `--version <ver>`     | Install a specific release version   |
 | `-l`, `--lang <en\|zh\|ru>` | Set script language, default `zh`    |
 | `-h`, `--help`              | Show help                            |
 
@@ -183,6 +208,12 @@ Upgrade Nowhere:
 
 ```bash
 sudo ./install.sh --upgrade --lang en
+```
+
+Install a specific Nowhere version:
+
+```bash
+sudo ./install.sh --install --version v1.2.3 --lang en
 ```
 
 Reconfigure the Portal:

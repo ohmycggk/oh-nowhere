@@ -43,6 +43,7 @@ ARG_TLS=""
 ARG_CERT=""
 ARG_KEYFILE=""
 ARG_LANG=""
+ARG_VERSION=""
 
 # Language
 SCRIPT_LANG="zh"
@@ -122,6 +123,8 @@ set_language() {
             MSG[label_latest_ver]="GitHub latest: %s"
             MSG[not_installed]="not installed"
             MSG[info_already_latest]="Already at latest version %s"
+            MSG[info_already_target]="Already at target version %s"
+            MSG[label_target_ver]="Target version: %s"
             MSG[prompt_force_reinstall]="Force reinstall? [y/N]: "
             MSG[info_skip_force]="One-shot mode: skipping force reinstall"
             MSG[info_svc_restarted]="Service restarted"
@@ -167,8 +170,9 @@ set_language() {
             MSG[menu_9]="Show share URI"
             MSG[menu_10]="Install QR code support"
             MSG[menu_11]="Change language"
+            MSG[menu_12]="Install specific version"
             MSG[menu_0]="Exit"
-            MSG[prompt_menu]="Enter option [0-11]: "
+            MSG[prompt_menu]="Enter option [0-12]: "
             MSG[ok_start_sent]="Start command sent"
             MSG[ok_stop_sent]="Stop command sent"
             MSG[ok_restart_sent]="Restart command sent"
@@ -181,6 +185,15 @@ set_language() {
             MSG[info_qr_installing]="Installing QR dependencies..."
             MSG[ok_qr_installed]="QR support installed. Use menu item 9 to show QR code."
             MSG[err_qr_install]="Failed to install QR dependencies"
+            MSG[info_target_version]="Target version: %s"
+            MSG[prompt_version]="Enter version (e.g. v1.2.3): "
+            MSG[err_version_empty]="Version cannot be empty"
+            MSG[ok_target_version_set]="Will install version: %s"
+            MSG[info_fetch_versions]="Fetching available versions..."
+            MSG[prompt_select_version]="Select version [0=latest, 1-%s]: "
+            MSG[err_no_versions]="No releases found"
+            MSG[err_invalid_version_choice]="Invalid choice"
+            MSG[label_latest_version]="latest"
             MSG[info_lang_set]="Language set to: %s"
             MSG[help_title]="Nowhere one-click install script"
             MSG[help_usage]="Usage:"
@@ -200,6 +213,7 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        TLS mode (default 1)"
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <path>   Key path when TLS=2"
+            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.2.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Script language (default zh)"
             MSG[help_opt_help]="  -h, --help             Show help"
             ;;
@@ -255,6 +269,8 @@ set_language() {
             MSG[label_latest_ver]="Последняя на GitHub: %s"
             MSG[not_installed]="не установлен"
             MSG[info_already_latest]="Уже последняя версия %s"
+            MSG[info_already_target]="Уже целевая версия %s"
+            MSG[label_target_ver]="Целевая версия: %s"
             MSG[prompt_force_reinstall]="Принудительно переустановить? [y/N]: "
             MSG[info_skip_force]="Одноразовый режим: принудительная переустановка пропущена"
             MSG[info_svc_restarted]="Служба перезапущена"
@@ -300,8 +316,9 @@ set_language() {
             MSG[menu_9]="Показать URI для шаринга"
             MSG[menu_10]="Установить поддержку QR"
             MSG[menu_11]="Сменить язык"
+            MSG[menu_12]="Установить указанную версию"
             MSG[menu_0]="Выход"
-            MSG[prompt_menu]="Введите пункт [0-11]: "
+            MSG[prompt_menu]="Введите пункт [0-12]: "
             MSG[ok_start_sent]="Команда запуска отправлена"
             MSG[ok_stop_sent]="Команда остановки отправлена"
             MSG[ok_restart_sent]="Команда перезапуска отправлена"
@@ -314,6 +331,15 @@ set_language() {
             MSG[info_qr_installing]="Установка зависимостей QR..."
             MSG[ok_qr_installed]="Поддержка QR установлена. Пункт меню 9 покажет QR-код."
             MSG[err_qr_install]="Не удалось установить зависимости QR"
+            MSG[info_target_version]="Целевая версия: %s"
+            MSG[prompt_version]="Введите версию (например v1.2.3): "
+            MSG[err_version_empty]="Версия не может быть пустой"
+            MSG[ok_target_version_set]="Будет установлена версия: %s"
+            MSG[info_fetch_versions]="Получение доступных версий..."
+            MSG[prompt_select_version]="Выберите версию [0=последняя, 1-%s]: "
+            MSG[err_no_versions]="Релизы не найдены"
+            MSG[err_invalid_version_choice]="Неверный выбор"
+            MSG[label_latest_version]="последняя"
             MSG[info_lang_set]="Язык установлен: %s"
             MSG[help_title]="Скрипт однократной установки Nowhere"
             MSG[help_usage]="Использование:"
@@ -333,6 +359,7 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        Режим TLS (по умолчанию 1)"
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <путь>   Ключ при TLS=2"
+            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.2.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Язык скрипта (по умолчанию zh)"
             MSG[help_opt_help]="  -h, --help             Справка"
             ;;
@@ -389,6 +416,8 @@ set_language() {
             MSG[label_latest_ver]="GitHub 最新版本: %s"
             MSG[not_installed]="未安装"
             MSG[info_already_latest]="当前已是最新版本 %s"
+            MSG[info_already_target]="当前已是目标版本 %s"
+            MSG[label_target_ver]="目标版本: %s"
             MSG[prompt_force_reinstall]="是否强制重新安装? [y/N]: "
             MSG[info_skip_force]="远程一键模式：跳过强制重装"
             MSG[info_svc_restarted]="服务已重新启动"
@@ -434,8 +463,9 @@ set_language() {
             MSG[menu_9]="显示分享 URI"
             MSG[menu_10]="安装二维码支持库"
             MSG[menu_11]="切换语言"
+            MSG[menu_12]="安装指定版本"
             MSG[menu_0]="退出"
-            MSG[prompt_menu]="请输入选项 [0-11]: "
+            MSG[prompt_menu]="请输入选项 [0-12]: "
             MSG[ok_start_sent]="启动命令已发送"
             MSG[ok_stop_sent]="停止命令已发送"
             MSG[ok_restart_sent]="重启命令已发送"
@@ -448,6 +478,15 @@ set_language() {
             MSG[info_qr_installing]="正在安装二维码依赖..."
             MSG[ok_qr_installed]="二维码支持已安装。可使用菜单项 9 显示二维码。"
             MSG[err_qr_install]="二维码依赖安装失败"
+            MSG[info_target_version]="目标版本: %s"
+            MSG[prompt_version]="请输入版本号 (例如 v1.2.3): "
+            MSG[err_version_empty]="版本号不能为空"
+            MSG[ok_target_version_set]="将要安装版本: %s"
+            MSG[info_fetch_versions]="正在获取可用版本..."
+            MSG[prompt_select_version]="请选择版本 [0=最新版, 1-%s]: "
+            MSG[err_no_versions]="未找到任何 release"
+            MSG[err_invalid_version_choice]="选择无效"
+            MSG[label_latest_version]="最新版"
             MSG[info_lang_set]="语言已设置为: %s"
             MSG[help_title]="Nowhere 一键安装脚本"
             MSG[help_usage]="用法:"
@@ -467,6 +506,7 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        指定 TLS 模式 (默认 1)"
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
             MSG[help_opt_keyfile]="      --keyfile <路径>   TLS=2 时的私钥路径"
+            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.2.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  脚本语言 (默认 zh)"
             MSG[help_opt_help]="  -h, --help             显示帮助"
             ;;
@@ -649,8 +689,12 @@ install_nowhere() {
     local is_upgrade="${2:-false}"
 
     if [[ -z "$version" ]]; then
-        log_info "$(t info_query_version)"
-        version=$(get_latest_version)
+        if [[ -n "$ARG_VERSION" ]]; then
+            version="$ARG_VERSION"
+        else
+            log_info "$(t info_query_version)"
+            version=$(get_latest_version)
+        fi
     fi
 
     local download_url asset_name tmp_dir binary
@@ -802,6 +846,66 @@ service_status() {
     fi
 }
 
+# ==================== Version list ====================
+list_github_versions() {
+    local response
+    response=$(curl -fsSL --connect-timeout 15 "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=30" 2>/dev/null)
+    if [[ -z "$response" ]]; then
+        return 1
+    fi
+    echo "$response" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 30
+}
+
+# ==================== Interactive specific version install ====================
+install_specific_version() {
+    log_info "$(t info_fetch_versions)"
+    local versions=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && versions+=("$line")
+    done < <(list_github_versions)
+
+    if [[ ${#versions[@]} -eq 0 ]]; then
+        log_error "$(t err_no_versions)"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${CYAN}  0) $(t label_latest_version)${NC}"
+    local i
+    for i in "${!versions[@]}"; do
+        echo -e "  ${YELLOW}$((i + 1)))${NC} ${versions[$i]}"
+    done
+    echo ""
+
+    local choice
+    read -rp "$(t prompt_select_version "${#versions[@]}")" choice
+    choice="$(echo "$choice" | tr -d '[:space:]')"
+
+    local version=""
+    if [[ "$choice" == "0" || -z "$choice" ]]; then
+        version=""
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 && "$choice" -le ${#versions[@]} ]]; then
+        version="${versions[$((choice - 1))]}"
+    else
+        log_error "$(t err_invalid_version_choice)"
+        return 1
+    fi
+
+    if [[ -n "$version" ]]; then
+        log_info "$(t ok_target_version_set "$version")"
+        ARG_VERSION="$version"
+    else
+        ARG_VERSION=""
+    fi
+
+    if command -v nowhere &>/dev/null; then
+        upgrade_nowhere
+    else
+        auto_install_nowhere
+    fi
+    ARG_VERSION=""
+}
+
 # ==================== Interactive configure ====================
 configure_nowhere() {
     log_info "$(t info_configure)"
@@ -923,19 +1027,28 @@ configure_nowhere() {
 upgrade_nowhere() {
     local installed_version latest_version
     installed_version=$(get_installed_version)
-    latest_version=$(get_latest_version)
 
     echo -e "${CYAN}$(t label_current_ver "${installed_version:-$(t not_installed)}")${NC}"
-    echo -e "${CYAN}$(t label_latest_ver "${latest_version#v}")${NC}"
 
-    if [[ -n "$installed_version" && "$installed_version" == "${latest_version#v}" ]]; then
-        log_info "$(t info_already_latest "${latest_version#v}")"
-        if [[ "$AUTO_MODE" != "upgrade" ]]; then
-            read -rp "$(t prompt_force_reinstall)" force
-            [[ "$force" =~ ^[Yy]$ ]] || return
-        else
-            log_info "$(t info_skip_force)"
-            return
+    if [[ -n "$ARG_VERSION" ]]; then
+        latest_version="$ARG_VERSION"
+        echo -e "${CYAN}$(t label_target_ver "${latest_version#v}")${NC}"
+        if [[ -n "$installed_version" && "$installed_version" == "${latest_version#v}" ]]; then
+            log_info "$(t info_already_target "${latest_version#v}")"
+        fi
+    else
+        latest_version=$(get_latest_version)
+        echo -e "${CYAN}$(t label_latest_ver "${latest_version#v}")${NC}"
+
+        if [[ -n "$installed_version" && "$installed_version" == "${latest_version#v}" ]]; then
+            log_info "$(t info_already_latest "${latest_version#v}")"
+            if [[ "$AUTO_MODE" != "upgrade" ]]; then
+                read -rp "$(t prompt_force_reinstall)" force
+                [[ "$force" =~ ^[Yy]$ ]] || return
+            else
+                log_info "$(t info_skip_force)"
+                return
+            fi
         fi
     fi
 
@@ -1207,6 +1320,7 @@ run_menu() {
             9) show_share_uri ;;
             10) install_qr_support ;;
             11) select_language ;;
+            12) install_specific_version ;;
             0) log_info "$(t info_exit)"; exit 0 ;;
             *) log_error "$(t err_invalid_choice)" ;;
         esac
@@ -1240,6 +1354,7 @@ $(t help_opt_net)
 $(t help_opt_tls)
 $(t help_opt_cert)
 $(t help_opt_keyfile)
+$(t help_opt_version)
 $(t help_opt_lang)
 $(t help_opt_help)
 
@@ -1249,6 +1364,7 @@ $(t help_examples)
   bash install.sh --install --key mysecret --port 2088
   bash install.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem
   bash install.sh -l en --status
+  bash install.sh --version v1.2.3 --install --key mysecret
 EOF
 }
 
@@ -1269,6 +1385,7 @@ parse_args() {
             --tls)              ARG_TLS="$2"; shift ;;
             --cert)             ARG_CERT="$2"; shift ;;
             --keyfile)          ARG_KEYFILE="$2"; shift ;;
+            -v|--version)       ARG_VERSION="$2"; shift ;;
             -l|--lang)
                 ARG_LANG="$2"
                 case "$ARG_LANG" in
