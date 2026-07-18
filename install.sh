@@ -18,10 +18,12 @@ NC='\033[0m'
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/nowhere"
 URL_FILE="${CONFIG_DIR}/url.conf"
+HOST_FILE="${CONFIG_DIR}/host.conf"
 LAUNCHER="${INSTALL_DIR}/nowhere-launch.sh"
 SERVICE_NAME="nowhere"
 GITHUB_REPO="NodePassProject/Nowhere"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+DEFAULT_ALPN="now/1"
 
 # Detected system info
 OS_ID=""
@@ -37,7 +39,8 @@ AUTO_MODE=""
 # One-click install arguments
 ARG_KEY=""
 ARG_PORT=""
-ARG_SPEC=""
+ARG_ALPN=""
+ARG_HOST=""
 ARG_NET=""
 ARG_TLS=""
 ARG_CERT=""
@@ -104,11 +107,16 @@ set_language() {
             MSG[prompt_config_intro]="Enter config (press Enter for defaults):"
             MSG[prompt_key]="Shared key [%s]: "
             MSG[prompt_port]="Listen port [%s]: "
-            MSG[prompt_spec]="spec name [%s]: "
+            MSG[prompt_alpn]="ALPN [%s]: "
+            MSG[prompt_host]="Public hostname for share/SNI (optional) [%s]: "
             MSG[prompt_net]="Network mode (mix/tcp/udp) [%s]: "
             MSG[prompt_tls]="TLS mode (1=self-signed, 2=custom cert) [%s]: "
             MSG[prompt_cert]="Certificate path [%s]: "
             MSG[prompt_keyfile]="Private key path [%s]: "
+            MSG[warn_spec_removed]="spec was removed in Nowhere 1.5; ignoring --spec"
+            MSG[warn_migrated_spec]="Removed deprecated spec= from %s (Nowhere 1.5)"
+            MSG[warn_v15_incompat]="Nowhere 1.5 is not wire-compatible with older clients; upgrade clients together. Anywhere is not ready for 1.5 yet."
+            MSG[warn_sni_missing]="TLS=2 but no public hostname set; share URI omits sni (certificate verification disabled)."
             MSG[label_generated_url]="Generated URL:"
             MSG[ok_config_updated]="Config updated and service restarted"
             MSG[prompt_save_config]="Save this config? [Y/n]: "
@@ -208,7 +216,8 @@ set_language() {
             MSG[help_opt_uninstall]="  --uninstall            One-shot uninstall"
             MSG[help_opt_key]="  -k, --key <key>        Shared key"
             MSG[help_opt_port]="  -p, --port <port>      Listen port (default 2077)"
-            MSG[help_opt_spec]="      --spec <spec>      spec (default auto)"
+            MSG[help_opt_alpn]="      --alpn <alpn>      ALPN (default now/1, omitted when default)"
+            MSG[help_opt_host]="      --host <hostname>  Public hostname for share URI / SNI"
             MSG[help_opt_net]="      --net <mix|tcp|udp>  Network mode (default mix)"
             MSG[help_opt_tls]="      --tls <1|2>        TLS mode (default 1)"
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
@@ -250,11 +259,16 @@ set_language() {
             MSG[prompt_config_intro]="Введите параметры (Enter — значение по умолчанию):"
             MSG[prompt_key]="Общий ключ [%s]: "
             MSG[prompt_port]="Порт [%s]: "
-            MSG[prompt_spec]="Имя spec [%s]: "
+            MSG[prompt_alpn]="ALPN [%s]: "
+            MSG[prompt_host]="Публичное имя для share/SNI (необязательно) [%s]: "
             MSG[prompt_net]="Сеть (mix/tcp/udp) [%s]: "
             MSG[prompt_tls]="TLS (1=самоподписанный, 2=свой сертификат) [%s]: "
             MSG[prompt_cert]="Путь к сертификату [%s]: "
             MSG[prompt_keyfile]="Путь к ключу [%s]: "
+            MSG[warn_spec_removed]="Параметр spec удалён в Nowhere 1.5; --spec игнорируется"
+            MSG[warn_migrated_spec]="Удалён устаревший spec= из %s (Nowhere 1.5)"
+            MSG[warn_v15_incompat]="Nowhere 1.5 несовместим со старыми клиентами; обновляйте вместе. Anywhere пока не готов к 1.5."
+            MSG[warn_sni_missing]="TLS=2, но публичное имя не задано; в share URI нет sni (проверка сертификата отключена)."
             MSG[label_generated_url]="Сгенерированный URL:"
             MSG[ok_config_updated]="Конфиг обновлён, служба перезапущена"
             MSG[prompt_save_config]="Сохранить конфиг? [Y/n]: "
@@ -354,7 +368,8 @@ set_language() {
             MSG[help_opt_uninstall]="  --uninstall            Удаление"
             MSG[help_opt_key]="  -k, --key <ключ>       Общий ключ"
             MSG[help_opt_port]="  -p, --port <порт>      Порт (по умолчанию 2077)"
-            MSG[help_opt_spec]="      --spec <spec>      spec (по умолчанию auto)"
+            MSG[help_opt_alpn]="      --alpn <alpn>      ALPN (по умолчанию now/1, default не пишется)"
+            MSG[help_opt_host]="      --host <hostname>  Публичное имя для share URI / SNI"
             MSG[help_opt_net]="      --net <mix|tcp|udp>  Сеть (по умолчанию mix)"
             MSG[help_opt_tls]="      --tls <1|2>        Режим TLS (по умолчанию 1)"
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
@@ -397,11 +412,16 @@ set_language() {
             MSG[prompt_config_intro]="请输入配置参数（直接回车使用默认值）："
             MSG[prompt_key]="共享密钥 [%s]: "
             MSG[prompt_port]="监听端口 [%s]: "
-            MSG[prompt_spec]="spec 名称 [%s]: "
+            MSG[prompt_alpn]="ALPN [%s]: "
+            MSG[prompt_host]="分享/SNI 用的公网主机名（可选）[%s]: "
             MSG[prompt_net]="网络模式 (mix/tcp/udp) [%s]: "
             MSG[prompt_tls]="TLS 模式 (1=自签, 2=自定义证书) [%s]: "
             MSG[prompt_cert]="证书路径 [%s]: "
             MSG[prompt_keyfile]="私钥路径 [%s]: "
+            MSG[warn_spec_removed]="Nowhere 1.5 已移除 spec；忽略 --spec"
+            MSG[warn_migrated_spec]="已从 %s 移除废弃的 spec=（Nowhere 1.5）"
+            MSG[warn_v15_incompat]="Nowhere 1.5 与旧版客户端协议不兼容，请一并升级；Anywhere 尚未适配 1.5。"
+            MSG[warn_sni_missing]="TLS=2 但未设置公网主机名；分享 URI 将省略 sni（跳过证书校验）。"
             MSG[label_generated_url]="生成的 URL："
             MSG[ok_config_updated]="配置已更新并重启服务"
             MSG[prompt_save_config]="是否保存此配置? [Y/n]: "
@@ -501,7 +521,8 @@ set_language() {
             MSG[help_opt_uninstall]="  --uninstall            一键卸载"
             MSG[help_opt_key]="  -k, --key <密钥>       指定共享密钥"
             MSG[help_opt_port]="  -p, --port <端口>      指定监听端口 (默认 2077)"
-            MSG[help_opt_spec]="      --spec <spec>      指定 spec (默认 auto)"
+            MSG[help_opt_alpn]="      --alpn <alpn>      指定 ALPN (默认 now/1，默认值不写入 URL)"
+            MSG[help_opt_host]="      --host <hostname>  分享 URI / SNI 用的公网主机名"
             MSG[help_opt_net]="      --net <mix|tcp|udp>  指定网络模式 (默认 mix)"
             MSG[help_opt_tls]="      --tls <1|2>        指定 TLS 模式 (默认 1)"
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
@@ -638,6 +659,103 @@ get_public_ip() {
     echo "$ip"
 }
 
+url_encode_alpn() {
+    local value="$1"
+    # Encode reserved characters commonly present in ALPN values.
+    value="${value//'/'/%2F}"
+    value="${value//' '/%20}"
+    value="${value//'#'/%23}"
+    value="${value//'?'/%3F}"
+    value="${value//'&'/%26}"
+    value="${value//'='/%3D}"
+    printf '%s' "$value"
+}
+
+url_decode_simple() {
+    local value="${1//+/+}"
+    printf '%b' "${value//%/\\x}"
+}
+
+load_share_host() {
+    if [[ -n "$ARG_HOST" ]]; then
+        echo "$ARG_HOST"
+        return
+    fi
+    if [[ -f "$HOST_FILE" ]]; then
+        tr -d '\n' < "$HOST_FILE"
+    fi
+}
+
+save_share_host() {
+    local host="$1"
+    mkdir -p "$CONFIG_DIR"
+    if [[ -n "$host" ]]; then
+        echo "$host" > "$HOST_FILE"
+    else
+        rm -f "$HOST_FILE"
+    fi
+}
+
+strip_query_param() {
+    local url="$1"
+    local key="$2"
+    echo "$url" | sed -E \
+        -e "s/([?&])${key}=[^&]*(&|$)/\1/" \
+        -e 's/\?&/?/' \
+        -e 's/&&+/\&/g' \
+        -e 's/\?$//' \
+        -e 's/&$//'
+}
+
+append_query_param() {
+    local url="$1"
+    local pair="$2"
+    if [[ "$url" == *\?* ]]; then
+        echo "${url}&${pair}"
+    else
+        echo "${url}?${pair}"
+    fi
+}
+
+build_portal_url() {
+    local key="$1"
+    local port="$2"
+    local tls="$3"
+    local net="$4"
+    local alpn="$5"
+    local crt="$6"
+    local keyfile="$7"
+
+    local url="portal://${key}@:${port}?tls=${tls}&net=${net}"
+    if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
+        url="${url}&alpn=$(url_encode_alpn "$alpn")"
+    fi
+    if [[ "$tls" == "2" ]]; then
+        url="${url}&crt=${crt}&key=${keyfile}"
+    fi
+    echo "$url"
+}
+
+migrate_portal_url_for_v15() {
+    if [[ ! -f "$URL_FILE" ]]; then
+        return 0
+    fi
+
+    local url migrated=false
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+
+    if echo "$url" | grep -qE '[?&]spec='; then
+        url=$(strip_query_param "$url" "spec")
+        migrated=true
+    fi
+
+    if [[ "$migrated" == "true" ]]; then
+        echo "$url" > "$URL_FILE"
+        log_warn "$(t warn_migrated_spec "$URL_FILE")"
+    fi
+}
+
 qr_support_available() {
     if command -v qrencode &>/dev/null; then
         echo "qrencode"
@@ -724,8 +842,10 @@ install_nowhere() {
     rm -rf "$tmp_dir"
 
     mkdir -p "$CONFIG_DIR"
+    migrate_portal_url_for_v15
 
     if [[ "$is_upgrade" == "true" ]]; then
+        log_warn "$(t warn_v15_incompat)"
         log_success "$(t ok_upgraded "$version")"
     else
         log_success "$(t ok_installed "$version")"
@@ -914,32 +1034,40 @@ configure_nowhere() {
     local existing_url=""
     [[ -f "$URL_FILE" ]] && existing_url=$(tr -d '\n' < "$URL_FILE")
 
-    local default_key default_port="2077" default_spec="auto" default_net="mix" default_tls="1"
+    local default_key default_port="2077" default_alpn="$DEFAULT_ALPN" default_net="mix" default_tls="1"
+    local default_host=""
     default_key=$(generate_random_key)
+    default_host=$(load_share_host)
 
     if [[ -n "$existing_url" ]]; then
         default_key=$(echo "$existing_url" | sed -n 's/.*portal:\/\/\([^@]*\)@.*/\1/p'); default_key=${default_key:-$(generate_random_key)}
         default_port=$(echo "$existing_url" | sed -n 's/.*:\([0-9]*\).*/\1/p'); default_port=${default_port:-2077}
-        default_spec=$(echo "$existing_url" | sed -n 's/.*spec=\([^&]*\).*/\1/p'); default_spec=${default_spec:-auto}
-        default_net=$(echo "$existing_url" | sed -n 's/.*net=\([^&]*\).*/\1/p'); default_net=${default_net:-mix}
-        default_tls=$(echo "$existing_url" | sed -n 's/.*tls=\([^&]*\).*/\1/p'); default_tls=${default_tls:-1}
+        default_net=$(echo "$existing_url" | sed -n 's/.*[?&]net=\([^&]*\).*/\1/p'); default_net=${default_net:-mix}
+        default_tls=$(echo "$existing_url" | sed -n 's/.*[?&]tls=\([^&]*\).*/\1/p'); default_tls=${default_tls:-1}
+        local existing_alpn
+        existing_alpn=$(echo "$existing_url" | sed -n 's/.*[?&]alpn=\([^&]*\).*/\1/p')
+        if [[ -n "$existing_alpn" ]]; then
+            default_alpn=$(url_decode_simple "$existing_alpn")
+        fi
     fi
 
     [[ -n "$ARG_KEY" ]] && default_key="$ARG_KEY"
     [[ -n "$ARG_PORT" ]] && default_port="$ARG_PORT"
-    [[ -n "$ARG_SPEC" ]] && default_spec="$ARG_SPEC"
+    [[ -n "$ARG_ALPN" ]] && default_alpn="$ARG_ALPN"
     [[ -n "$ARG_NET" ]] && default_net="$ARG_NET"
     [[ -n "$ARG_TLS" ]] && default_tls="$ARG_TLS"
+    [[ -n "$ARG_HOST" ]] && default_host="$ARG_HOST"
 
-    local key="$default_key" port="$default_port" spec="$default_spec" net="$default_net" tls="$default_tls"
+    local key="$default_key" port="$default_port" alpn="$default_alpn" net="$default_net" tls="$default_tls" host="$default_host"
     local skip_prompts=false
     if [[ "$AUTO_MODE" == "config" && -n "$ARG_KEY" ]]; then
         skip_prompts=true
         key="${ARG_KEY:-$default_key}"
         port="${ARG_PORT:-$default_port}"
-        spec="${ARG_SPEC:-$default_spec}"
+        alpn="${ARG_ALPN:-$default_alpn}"
         net="${ARG_NET:-$default_net}"
         tls="${ARG_TLS:-$default_tls}"
+        host="${ARG_HOST:-$default_host}"
     fi
 
     if [[ "$skip_prompts" == false ]]; then
@@ -951,21 +1079,29 @@ configure_nowhere() {
         read -rp "$(t prompt_port "$default_port")" port_input
         [[ -n "$port_input" ]] && port="$port_input"
 
-        read -rp "$(t prompt_spec "$default_spec")" spec_input
-        [[ -n "$spec_input" ]] && spec="$spec_input"
-
         read -rp "$(t prompt_net "$default_net")" net_input
         [[ -n "$net_input" ]] && net="$net_input"
 
         read -rp "$(t prompt_tls "$default_tls")" tls_input
         [[ -n "$tls_input" ]] && tls="$tls_input"
+
+        read -rp "$(t prompt_alpn "$default_alpn")" alpn_input
+        [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+
+        read -rp "$(t prompt_host "$default_host")" host_input
+        # Allow clearing host by typing a single dash.
+        if [[ "$host_input" == "-" ]]; then
+            host=""
+        elif [[ -n "$host_input" ]]; then
+            host="$host_input"
+        fi
     fi
 
-    local url="portal://${key}@:${port}?tls=${tls}&net=${net}&spec=${spec}"
-
+    local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
     if [[ "$tls" == "2" ]]; then
         local default_crt="/etc/nowhere/cert.pem" default_keyfile="/etc/nowhere/key.pem"
-        local crt="$default_crt" keyfile="$default_keyfile"
+        crt="$default_crt"
+        keyfile="$default_keyfile"
         if [[ "$skip_prompts" == true ]]; then
             crt="${ARG_CERT:-$default_crt}"
             keyfile="${ARG_KEYFILE:-$default_keyfile}"
@@ -975,13 +1111,16 @@ configure_nowhere() {
             read -rp "$(t prompt_keyfile "$default_keyfile")" keyfile_input
             [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
         fi
-        url="${url}&crt=${crt}&key=${keyfile}"
     fi
+
+    local url
+    url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile")
 
     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${url}${NC}\n"
 
     if [[ "$AUTO_MODE" == "config" ]]; then
         echo "$url" > "$URL_FILE"
+        save_share_host "$host"
         write_launcher
         if [[ "$INIT_SYSTEM" == "systemd" ]]; then
             install_systemd_service
@@ -996,6 +1135,7 @@ configure_nowhere() {
     read -rp "$(t prompt_save_config)" save
     if [[ ! "$save" =~ ^[Nn]$ ]]; then
         echo "$url" > "$URL_FILE"
+        save_share_host "$host"
         log_success "$(t ok_config_saved "$URL_FILE")"
 
         write_launcher
@@ -1084,11 +1224,12 @@ auto_install_nowhere() {
     log_info "$(t info_gen_config)"
     mkdir -p "$CONFIG_DIR"
 
-    local key port spec net tls url
+    local key port alpn net tls host url
     port=${ARG_PORT:-2077}
-    spec=${ARG_SPEC:-auto}
+    alpn=${ARG_ALPN:-$DEFAULT_ALPN}
     net=${ARG_NET:-mix}
     tls=${ARG_TLS:-1}
+    host=${ARG_HOST:-}
 
     if [[ -n "$ARG_KEY" ]]; then
         key="$ARG_KEY"
@@ -1105,20 +1246,25 @@ auto_install_nowhere() {
         read -rp "$(t prompt_port "$port")" port_input
         [[ -n "$port_input" ]] && port="$port_input"
 
-        read -rp "$(t prompt_spec "$spec")" spec_input
-        [[ -n "$spec_input" ]] && spec="$spec_input"
-
         read -rp "$(t prompt_net "$net")" net_input
         [[ -n "$net_input" ]] && net="$net_input"
 
         read -rp "$(t prompt_tls "$tls")" tls_input
         [[ -n "$tls_input" ]] && tls="$tls_input"
+
+        read -rp "$(t prompt_alpn "$alpn")" alpn_input
+        [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+
+        read -rp "$(t prompt_host "$host")" host_input
+        if [[ "$host_input" == "-" ]]; then
+            host=""
+        elif [[ -n "$host_input" ]]; then
+            host="$host_input"
+        fi
     fi
 
-    url="portal://${key}@:${port}?tls=${tls}&net=${net}&spec=${spec}"
-
+    local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
     if [[ "$tls" == "2" ]]; then
-        local crt keyfile
         crt=${ARG_CERT:-/etc/nowhere/cert.pem}
         keyfile=${ARG_KEYFILE:-/etc/nowhere/key.pem}
         if [[ -t 0 && -z "$ARG_CERT" ]]; then
@@ -1127,10 +1273,12 @@ auto_install_nowhere() {
             read -rp "$(t prompt_keyfile "$keyfile")" keyfile_input
             [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
         fi
-        url="${url}&crt=${crt}&key=${keyfile}"
     fi
 
+    url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile")
+
     echo "$url" > "$URL_FILE"
+    save_share_host "$host"
     write_launcher
     log_success "$(t ok_config_written "$URL_FILE")"
     echo -e "${CYAN}$(t label_run_url "${GREEN}${url}${NC}")${NC}"
@@ -1156,18 +1304,63 @@ show_share_uri() {
         return
     fi
 
-    local server_url client_uri ip tls_mode qr_tool
+    local server_url client_uri share_host tls_mode net_mode alpn_raw qr_tool key port
     server_url=$(tr -d '\n' < "$URL_FILE")
-    ip=$(get_public_ip)
 
-    client_uri=$(echo "$server_url" | sed 's/^portal:/nowhere:/')
-    if [[ -n "$ip" ]]; then
-        client_uri=$(echo "$client_uri" | sed "s|@:|@${ip}:|")
-    fi
-    client_uri=$(echo "$client_uri" | sed -E 's/([?&])net=[^&]*(&|$)/\1/; s/\?&/?/; s/&$//; s/\?$//')
+    key=$(echo "$server_url" | sed -n 's/^portal:\/\/\([^@]*\)@.*/\1/p')
+    port=$(echo "$server_url" | sed -n 's/.*:\([0-9][0-9]*\).*/\1/p')
+    port=${port:-2077}
 
     tls_mode=$(echo "$server_url" | sed -n 's/.*[?&]tls=\([^&]*\).*/\1/p')
     tls_mode=${tls_mode:-1}
+    net_mode=$(echo "$server_url" | sed -n 's/.*[?&]net=\([^&]*\).*/\1/p')
+    net_mode=${net_mode:-mix}
+    alpn_raw=$(echo "$server_url" | sed -n 's/.*[?&]alpn=\([^&]*\).*/\1/p')
+
+    share_host=$(load_share_host)
+    if [[ -z "$share_host" ]]; then
+        share_host=$(get_public_ip)
+    fi
+    if [[ -z "$share_host" ]]; then
+        share_host="127.0.0.1"
+    fi
+
+    client_uri="nowhere://${key}@${share_host}:${port}"
+
+    case "$net_mode" in
+        tcp)
+            client_uri=$(append_query_param "$client_uri" "up=tcp")
+            client_uri=$(append_query_param "$client_uri" "down=tcp")
+            client_uri=$(append_query_param "$client_uri" "pool=5")
+            ;;
+        udp)
+            client_uri=$(append_query_param "$client_uri" "up=udp")
+            client_uri=$(append_query_param "$client_uri" "down=udp")
+            ;;
+        *)
+            # mix / default: match upstream client defaults
+            client_uri=$(append_query_param "$client_uri" "up=udp")
+            client_uri=$(append_query_param "$client_uri" "down=udp")
+            ;;
+    esac
+
+    if [[ "$tls_mode" == "2" ]]; then
+        local stored_host
+        stored_host=$(load_share_host)
+        if [[ -n "$stored_host" ]]; then
+            client_uri=$(append_query_param "$client_uri" "sni=${stored_host}")
+        else
+            log_warn "$(t warn_sni_missing)"
+        fi
+    fi
+
+    if [[ -n "$alpn_raw" ]]; then
+        local decoded_alpn
+        decoded_alpn=$(url_decode_simple "$alpn_raw")
+        if [[ -n "$decoded_alpn" && "$decoded_alpn" != "$DEFAULT_ALPN" ]]; then
+            client_uri=$(append_query_param "$client_uri" "alpn=${alpn_raw}")
+        fi
+    fi
 
     echo -e "\n${CYAN}$(t share_title)${NC}"
     echo -e "${CYAN}$(t label_client_uri)${NC}\n${GREEN}${client_uri}${NC}\n"
@@ -1349,7 +1542,8 @@ $(t help_opt_share)
 $(t help_opt_uninstall)
 $(t help_opt_key)
 $(t help_opt_port)
-$(t help_opt_spec)
+$(t help_opt_alpn)
+$(t help_opt_host)
 $(t help_opt_net)
 $(t help_opt_tls)
 $(t help_opt_cert)
@@ -1362,7 +1556,7 @@ $(t help_no_opt)
 
 $(t help_examples)
   bash install.sh --install --key mysecret --port 2088
-  bash install.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem
+  bash install.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
   bash install.sh -l en --status
   bash install.sh --version v1.2.3 --install --key mysecret
 EOF
@@ -1380,7 +1574,15 @@ parse_args() {
             --uninstall)        AUTO_MODE="uninstall" ;;
             -k|--key)           ARG_KEY="$2"; shift ;;
             -p|--port)          ARG_PORT="$2"; shift ;;
-            --spec)             ARG_SPEC="$2"; shift ;;
+            --alpn)             ARG_ALPN="$2"; shift ;;
+            --host)             ARG_HOST="$2"; shift ;;
+            --spec)
+                # Kept for automation compatibility; Nowhere 1.5 removed spec.
+                log_warn "$(t warn_spec_removed)"
+                if [[ $# -ge 2 && "$2" != -* ]]; then
+                    shift
+                fi
+                ;;
             --net)              ARG_NET="$2"; shift ;;
             --tls)              ARG_TLS="$2"; shift ;;
             --cert)             ARG_CERT="$2"; shift ;;
