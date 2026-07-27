@@ -52,14 +52,14 @@ Supported architectures:
 Download the script first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ohmycggk/oh-nowhere/main/install.sh -o install.sh
-chmod +x install.sh
+curl -fsSL https://raw.githubusercontent.com/ohmycggk/oh-nowhere/main/oh-nowhere.sh -o oh-nowhere.sh
+chmod +x oh-nowhere.sh
 ```
 
 Run the interactive manager:
 
 ```bash
-sudo ./install.sh --lang en
+sudo ./oh-nowhere.sh --lang en
 ```
 
 Then select the action from the menu:
@@ -85,13 +85,13 @@ Then select the action from the menu:
 Install Nowhere with default values:
 
 ```bash
-sudo ./install.sh --install --lang en
+sudo ./oh-nowhere.sh --install --lang en
 ```
 
 Install with custom Portal parameters:
 
 ```bash
-sudo ./install.sh \
+sudo ./oh-nowhere.sh \
   --install \
   --key change-me \
   --port 2077 \
@@ -111,7 +111,7 @@ portal://change-me@:2077?tls=1&net=mix
 Install a specific upstream release from the command line:
 
 ```bash
-sudo ./install.sh \
+sudo ./oh-nowhere.sh \
   --install \
   --version v1.5.0 \
   --key change-me \
@@ -122,7 +122,7 @@ sudo ./install.sh \
 Upgrade or downgrade to a specific version:
 
 ```bash
-sudo ./install.sh --upgrade --version v1.5.0 --lang en
+sudo ./oh-nowhere.sh --upgrade --version v1.5.0 --lang en
 ```
 
 You can also select a version interactively by choosing menu item `12. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
@@ -134,7 +134,7 @@ You can also select a version interactively by choosing menu item `12. Install s
 The default mode is `tls=1`.
 
 ```bash
-sudo ./install.sh \
+sudo ./oh-nowhere.sh \
   --config \
   --key change-me \
   --port 2077 \
@@ -150,7 +150,7 @@ When using self-signed TLS, clients must skip certificate verification. The shar
 Use `tls=2` when you want to provide your own certificate and private key. Set `--host` so the share URI can include a matching `sni`:
 
 ```bash
-sudo ./install.sh \
+sudo ./oh-nowhere.sh \
   --config \
   --key change-me \
   --port 2077 \
@@ -185,18 +185,19 @@ Menu item 9 / `--share` prints a `nowhere://` import URI for clients (not `vecto
 Examples:
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=udp&down=udp
-nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example
+nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example#Nowhere-DE-45
 ```
 
 * Host prefers `/etc/nowhere/host.conf` (or `--host`); otherwise the detected public IP
+* Node name is appended as a percent-encoded `#fragment`; set it with `--name` (default `Nowhere-<country>-<first IP octet>`, stored in `/etc/nowhere/name.conf`)
 * Portal-only parameters (`tls`, `crt`, `key`, `net`, `dial`, `rate`, `etar`, `log`, outbound `socks`) are not copied into the share URI
 * Custom `alpn` is copied when it differs from `now/1`
 
 ## CLI Usage
 
 ```bash
-sudo ./install.sh [options]
+sudo ./oh-nowhere.sh [options]
 ```
 
 ### Options
@@ -213,6 +214,7 @@ sudo ./install.sh [options]
 | `-p`, `--port <port>`       | Set the listen port, default `2077`  |
 | `--alpn <alpn>`             | Set ALPN; default `now/1` is omitted |
 | `--host <hostname>`         | Public hostname for share URI / SNI  |
+| `--name <name>`             | Node name for share URI `#` fragment |
 | `--net <mix\|tcp\|udp>`     | Set the network mode, default `mix`  |
 | `--tls <1\|2>`              | Set TLS mode, default `1`            |
 | `--cert <path>`             | Certificate path when `tls=2`        |
@@ -228,37 +230,37 @@ sudo ./install.sh [options]
 Show status:
 
 ```bash
-sudo ./install.sh --status --lang en
+sudo ./oh-nowhere.sh --status --lang en
 ```
 
 Upgrade Nowhere:
 
 ```bash
-sudo ./install.sh --upgrade --lang en
+sudo ./oh-nowhere.sh --upgrade --lang en
 ```
 
 Install a specific Nowhere version:
 
 ```bash
-sudo ./install.sh --install --version v1.5.0 --lang en
+sudo ./oh-nowhere.sh --install --version v1.5.0 --lang en
 ```
 
 Reconfigure the Portal:
 
 ```bash
-sudo ./install.sh --config --lang en
+sudo ./oh-nowhere.sh --config --lang en
 ```
 
 Show client share URI:
 
 ```bash
-sudo ./install.sh --share --lang en
+sudo ./oh-nowhere.sh --share --lang en
 ```
 
 Uninstall Nowhere:
 
 ```bash
-sudo ./install.sh --uninstall --lang en
+sudo ./oh-nowhere.sh --uninstall --lang en
 ```
 
 ## Installed Files
@@ -270,6 +272,7 @@ The script may create or manage the following files:
 /usr/local/bin/nowhere-launch.sh
 /etc/nowhere/url.conf
 /etc/nowhere/host.conf
+/etc/nowhere/name.conf
 /etc/systemd/system/nowhere.service
 /etc/init.d/nowhere
 ```
@@ -284,6 +287,12 @@ Optional public hostname for share / SNI:
 
 ```text
 /etc/nowhere/host.conf
+```
+
+Node name appended to the share URI as `#fragment`:
+
+```text
+/etc/nowhere/name.conf
 ```
 
 The service launcher reads `url.conf` and starts Nowhere with the stored Portal URL.
@@ -337,7 +346,7 @@ On Alpine Linux, it uses `python3` and `py3-qrcode`.
 After installing QR support, use:
 
 ```bash
-sudo ./install.sh --share --lang en
+sudo ./oh-nowhere.sh --share --lang en
 ```
 
 ## Security Notes

@@ -19,6 +19,7 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/nowhere"
 URL_FILE="${CONFIG_DIR}/url.conf"
 HOST_FILE="${CONFIG_DIR}/host.conf"
+NAME_FILE="${CONFIG_DIR}/name.conf"
 LAUNCHER="${INSTALL_DIR}/nowhere-launch.sh"
 SERVICE_NAME="nowhere"
 GITHUB_REPO="NodePassProject/Nowhere"
@@ -41,6 +42,7 @@ ARG_KEY=""
 ARG_PORT=""
 ARG_ALPN=""
 ARG_HOST=""
+ARG_NAME=""
 ARG_NET=""
 ARG_TLS=""
 ARG_CERT=""
@@ -109,6 +111,7 @@ set_language() {
             MSG[prompt_port]="Listen port [%s]: "
             MSG[prompt_alpn]="ALPN [%s]: "
             MSG[prompt_host]="Public hostname for share/SNI (optional) [%s]: "
+            MSG[prompt_name]="Node name [%s]: "
             MSG[prompt_net]="Network mode (mix/tcp/udp) [%s]: "
             MSG[prompt_tls]="TLS mode (1=self-signed, 2=custom cert) [%s]: "
             MSG[prompt_cert]="Certificate path [%s]: "
@@ -218,6 +221,7 @@ set_language() {
             MSG[help_opt_port]="  -p, --port <port>      Listen port (default 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      ALPN (default now/1, omitted when default)"
             MSG[help_opt_host]="      --host <hostname>  Public hostname for share URI / SNI"
+            MSG[help_opt_name]="      --name <name>      Node name for share URI #fragment (default Nowhere-<country>-<ip octet>)"
             MSG[help_opt_net]="      --net <mix|tcp|udp>  Network mode (default mix)"
             MSG[help_opt_tls]="      --tls <1|2>        TLS mode (default 1)"
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
@@ -261,6 +265,7 @@ set_language() {
             MSG[prompt_port]="Порт [%s]: "
             MSG[prompt_alpn]="ALPN [%s]: "
             MSG[prompt_host]="Публичное имя для share/SNI (необязательно) [%s]: "
+            MSG[prompt_name]="Имя узла [%s]: "
             MSG[prompt_net]="Сеть (mix/tcp/udp) [%s]: "
             MSG[prompt_tls]="TLS (1=самоподписанный, 2=свой сертификат) [%s]: "
             MSG[prompt_cert]="Путь к сертификату [%s]: "
@@ -370,6 +375,7 @@ set_language() {
             MSG[help_opt_port]="  -p, --port <порт>      Порт (по умолчанию 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      ALPN (по умолчанию now/1, default не пишется)"
             MSG[help_opt_host]="      --host <hostname>  Публичное имя для share URI / SNI"
+            MSG[help_opt_name]="      --name <имя>       Имя узла для #фрагмента share URI (по умолчанию Nowhere-<страна>-<октет IP>)"
             MSG[help_opt_net]="      --net <mix|tcp|udp>  Сеть (по умолчанию mix)"
             MSG[help_opt_tls]="      --tls <1|2>        Режим TLS (по умолчанию 1)"
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
@@ -414,6 +420,7 @@ set_language() {
             MSG[prompt_port]="监听端口 [%s]: "
             MSG[prompt_alpn]="ALPN [%s]: "
             MSG[prompt_host]="分享/SNI 用的公网主机名（可选）[%s]: "
+            MSG[prompt_name]="节点名称 [%s]: "
             MSG[prompt_net]="网络模式 (mix/tcp/udp) [%s]: "
             MSG[prompt_tls]="TLS 模式 (1=自签, 2=自定义证书) [%s]: "
             MSG[prompt_cert]="证书路径 [%s]: "
@@ -523,6 +530,7 @@ set_language() {
             MSG[help_opt_port]="  -p, --port <端口>      指定监听端口 (默认 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      指定 ALPN (默认 now/1，默认值不写入 URL)"
             MSG[help_opt_host]="      --host <hostname>  分享 URI / SNI 用的公网主机名"
+            MSG[help_opt_name]="      --name <名称>      节点名称，作为分享 URI 的 # 片段 (默认 Nowhere-位置-IP首段)"
             MSG[help_opt_net]="      --net <mix|tcp|udp>  指定网络模式 (默认 mix)"
             MSG[help_opt_tls]="      --tls <1|2>        指定 TLS 模式 (默认 1)"
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
@@ -694,6 +702,63 @@ save_share_host() {
     else
         rm -f "$HOST_FILE"
     fi
+}
+
+url_encode_name() {
+    # Percent-encode a node name for use as a URI fragment.
+    local LC_ALL=C
+    local value="$1" encoded="" c i
+    for (( i=0; i<${#value}; i++ )); do
+        c="${value:i:1}"
+        case "$c" in
+            [a-zA-Z0-9._~-]) encoded+="$c" ;;
+            *) printf -v c '%%%02X' "'$c"; encoded+="$c" ;;
+        esac
+    done
+    printf '%s' "$encoded"
+}
+
+get_server_location() {
+    # Best-effort country code of the server (e.g. US, JP); empty on failure.
+    local loc=""
+    for api in "https://ipinfo.io/country" "https://ipapi.co/country"; do
+        loc=$(curl -fsSL --connect-timeout 5 "$api" 2>/dev/null | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]' | grep -oE '^[A-Z]{2}$' | head -n1 || true)
+        [[ -n "$loc" ]] && break
+    done
+    echo "$loc"
+}
+
+default_node_name() {
+    # Default: Nowhere-<country>-<first IP octet>, e.g. Nowhere-US-203
+    local ip loc octet=""
+    ip=$(get_public_ip)
+    if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        octet="${ip%%.*}"
+    fi
+    loc=$(get_server_location)
+    local name="Nowhere"
+    [[ -n "$loc" ]] && name="${name}-${loc}"
+    [[ -n "$octet" ]] && name="${name}-${octet}"
+    echo "$name"
+}
+
+load_node_name() {
+    if [[ -n "$ARG_NAME" ]]; then
+        echo "$ARG_NAME"
+        return
+    fi
+    if [[ -f "$NAME_FILE" ]]; then
+        tr -d '\n' < "$NAME_FILE"
+        return
+    fi
+    default_node_name
+}
+
+save_node_name() {
+    local name="$1"
+    mkdir -p "$CONFIG_DIR"
+    # An empty name is kept as an empty file: no #fragment in the share URI.
+    echo "$name" > "$NAME_FILE"
 }
 
 strip_query_param() {
@@ -1058,7 +1123,10 @@ configure_nowhere() {
     [[ -n "$ARG_TLS" ]] && default_tls="$ARG_TLS"
     [[ -n "$ARG_HOST" ]] && default_host="$ARG_HOST"
 
-    local key="$default_key" port="$default_port" alpn="$default_alpn" net="$default_net" tls="$default_tls" host="$default_host"
+    local default_name
+    default_name=$(load_node_name)
+
+    local key="$default_key" port="$default_port" alpn="$default_alpn" net="$default_net" tls="$default_tls" host="$default_host" name="$default_name"
     local skip_prompts=false
     if [[ "$AUTO_MODE" == "config" && -n "$ARG_KEY" ]]; then
         skip_prompts=true
@@ -1068,6 +1136,7 @@ configure_nowhere() {
         net="${ARG_NET:-$default_net}"
         tls="${ARG_TLS:-$default_tls}"
         host="${ARG_HOST:-$default_host}"
+        name="${ARG_NAME:-$default_name}"
     fi
 
     if [[ "$skip_prompts" == false ]]; then
@@ -1095,6 +1164,14 @@ configure_nowhere() {
         elif [[ -n "$host_input" ]]; then
             host="$host_input"
         fi
+
+        read -rp "$(t prompt_name "$default_name")" name_input
+        # Allow clearing node name by typing a single dash.
+        if [[ "$name_input" == "-" ]]; then
+            name=""
+        elif [[ -n "$name_input" ]]; then
+            name="$name_input"
+        fi
     fi
 
     local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
@@ -1121,6 +1198,7 @@ configure_nowhere() {
     if [[ "$AUTO_MODE" == "config" ]]; then
         echo "$url" > "$URL_FILE"
         save_share_host "$host"
+        save_node_name "$name"
         write_launcher
         if [[ "$INIT_SYSTEM" == "systemd" ]]; then
             install_systemd_service
@@ -1136,6 +1214,7 @@ configure_nowhere() {
     if [[ ! "$save" =~ ^[Nn]$ ]]; then
         echo "$url" > "$URL_FILE"
         save_share_host "$host"
+        save_node_name "$name"
         log_success "$(t ok_config_saved "$URL_FILE")"
 
         write_launcher
@@ -1224,12 +1303,13 @@ auto_install_nowhere() {
     log_info "$(t info_gen_config)"
     mkdir -p "$CONFIG_DIR"
 
-    local key port alpn net tls host url
+    local key port alpn net tls host name url
     port=${ARG_PORT:-2077}
     alpn=${ARG_ALPN:-$DEFAULT_ALPN}
     net=${ARG_NET:-mix}
     tls=${ARG_TLS:-1}
     host=${ARG_HOST:-}
+    name=$(load_node_name)
 
     if [[ -n "$ARG_KEY" ]]; then
         key="$ARG_KEY"
@@ -1261,6 +1341,13 @@ auto_install_nowhere() {
         elif [[ -n "$host_input" ]]; then
             host="$host_input"
         fi
+
+        read -rp "$(t prompt_name "$name")" name_input
+        if [[ "$name_input" == "-" ]]; then
+            name=""
+        elif [[ -n "$name_input" ]]; then
+            name="$name_input"
+        fi
     fi
 
     local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
@@ -1279,6 +1366,7 @@ auto_install_nowhere() {
 
     echo "$url" > "$URL_FILE"
     save_share_host "$host"
+    save_node_name "$name"
     write_launcher
     log_success "$(t ok_config_written "$URL_FILE")"
     echo -e "${CYAN}$(t label_run_url "${GREEN}${url}${NC}")${NC}"
@@ -1304,7 +1392,7 @@ show_share_uri() {
         return
     fi
 
-    local server_url client_uri share_host tls_mode net_mode alpn_raw qr_tool key port
+    local server_url client_uri share_host tls_mode net_mode alpn_raw qr_tool key port node_name
     server_url=$(tr -d '\n' < "$URL_FILE")
 
     key=$(echo "$server_url" | sed -n 's/^portal:\/\/\([^@]*\)@.*/\1/p')
@@ -1324,6 +1412,8 @@ show_share_uri() {
     if [[ -z "$share_host" ]]; then
         share_host="127.0.0.1"
     fi
+
+    node_name=$(load_node_name)
 
     client_uri="nowhere://${key}@${share_host}:${port}"
 
@@ -1362,6 +1452,10 @@ show_share_uri() {
         fi
     fi
 
+    if [[ -n "$node_name" ]]; then
+        client_uri="${client_uri}#$(url_encode_name "$node_name")"
+    fi
+
     echo -e "\n${CYAN}$(t share_title)${NC}"
     echo -e "${CYAN}$(t label_client_uri)${NC}\n${GREEN}${client_uri}${NC}\n"
 
@@ -1372,7 +1466,7 @@ show_share_uri() {
         echo ""
     elif [[ "$qr_tool" == "python3-qrcode" ]]; then
         echo -e "${CYAN}$(t label_qr)${NC}\n"
-        python3 -c "import qrcode,sys; qr=qrcode.QRCode(border=2); qr.add_data(sys.argv[1]); qr.make(); qr.print_tty(invert=True)" "$client_uri" || true
+        python3 -c "import qrcode,sys; qr=qrcode.QRCode(border=2); qr.add_data(sys.argv[1]); qr.make(); qr.print_tty()" "$client_uri" || true
         echo ""
     fi
 
@@ -1531,7 +1625,7 @@ show_help() {
 $(t help_title)
 
 $(t help_usage)
-  bash install.sh [options]
+  bash oh-nowhere.sh [options]
 
 $(t help_options)
 $(t help_opt_install)
@@ -1544,6 +1638,7 @@ $(t help_opt_key)
 $(t help_opt_port)
 $(t help_opt_alpn)
 $(t help_opt_host)
+$(t help_opt_name)
 $(t help_opt_net)
 $(t help_opt_tls)
 $(t help_opt_cert)
@@ -1555,10 +1650,10 @@ $(t help_opt_help)
 $(t help_no_opt)
 
 $(t help_examples)
-  bash install.sh --install --key mysecret --port 2088
-  bash install.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
-  bash install.sh -l en --status
-  bash install.sh --version v1.2.3 --install --key mysecret
+  bash oh-nowhere.sh --install --key mysecret --port 2088
+  bash oh-nowhere.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
+  bash oh-nowhere.sh -l en --status
+  bash oh-nowhere.sh --version v1.2.3 --install --key mysecret
 EOF
 }
 
@@ -1576,6 +1671,7 @@ parse_args() {
             -p|--port)          ARG_PORT="$2"; shift ;;
             --alpn)             ARG_ALPN="$2"; shift ;;
             --host)             ARG_HOST="$2"; shift ;;
+            --name)             ARG_NAME="$2"; shift ;;
             --spec)
                 # Kept for automation compatibility; Nowhere 1.5 removed spec.
                 log_warn "$(t warn_spec_removed)"
