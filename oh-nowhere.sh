@@ -49,6 +49,15 @@ ARG_CERT=""
 ARG_KEYFILE=""
 ARG_LANG=""
 ARG_VERSION=""
+ARG_TYPE=""
+ARG_SOCKS=""
+ARG_UP=""
+ARG_DOWN=""
+ARG_POOL=""
+ARG_SNI=""
+ARG_PIN=""
+ARG_URL=""
+DEFAULT_SOCKS_IN="127.0.0.1:1080"
 
 # Language
 SCRIPT_LANG="zh"
@@ -105,7 +114,7 @@ set_language() {
             MSG[ok_uninstalled]="Nowhere uninstalled"
             MSG[warn_svc_missing]="Service not running or not installed"
             MSG[warn_svc_detect]="Unable to detect service status"
-            MSG[info_configure]="Configure Nowhere Portal"
+            MSG[info_configure]="Configure Nowhere service"
             MSG[prompt_config_intro]="Enter config (press Enter for defaults):"
             MSG[prompt_key]="Shared key [%s]: "
             MSG[prompt_port]="Listen port [%s]: "
@@ -118,7 +127,7 @@ set_language() {
             MSG[prompt_keyfile]="Private key path [%s]: "
             MSG[warn_spec_removed]="spec was removed in Nowhere 1.5; ignoring --spec"
             MSG[warn_migrated_spec]="Removed deprecated spec= from %s (Nowhere 1.5)"
-            MSG[warn_v15_incompat]="Nowhere 1.5 is not wire-compatible with older clients; upgrade clients together. Anywhere is not ready for 1.5 yet."
+            MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only)."
             MSG[warn_sni_missing]="TLS=2 but no public hostname set; share URI omits sni (certificate verification disabled)."
             MSG[label_generated_url]="Generated URL:"
             MSG[ok_config_updated]="Config updated and service restarted"
@@ -143,7 +152,7 @@ set_language() {
             MSG[prompt_overwrite]="Overwrite install/upgrade? [y/N]: "
             MSG[prompt_config_now]="Configure service now? [Y/n]: "
             MSG[info_skip_config]="Skipped config; choose \"Configure service\" later"
-            MSG[info_gen_config]="Generating Nowhere Portal config..."
+            MSG[info_gen_config]="Generating Nowhere service config..."
             MSG[info_random_key]="Generated random shared key: %s"
             MSG[info_key_hint]="Press Enter to keep it, or type a custom key:"
             MSG[ok_config_written]="Config written to %s"
@@ -182,8 +191,9 @@ set_language() {
             MSG[menu_10]="Install QR code support"
             MSG[menu_11]="Change language"
             MSG[menu_12]="Install specific version"
+            MSG[menu_13]="Launch Nowhere TUI"
             MSG[menu_0]="Exit"
-            MSG[prompt_menu]="Enter option [0-12]: "
+            MSG[prompt_menu]="Enter option [0-13]: "
             MSG[ok_start_sent]="Start command sent"
             MSG[ok_stop_sent]="Stop command sent"
             MSG[ok_restart_sent]="Restart command sent"
@@ -216,7 +226,10 @@ set_language() {
             MSG[help_opt_config]="  -c, --config           Configure service"
             MSG[help_opt_status]="  -s, --status           Show status"
             MSG[help_opt_share]="  -q, --share            Show share URI"
+            MSG[help_opt_tui]="      --tui              Launch Nowhere TUI dashboard"
             MSG[help_opt_uninstall]="  --uninstall            One-shot uninstall"
+            MSG[help_opt_type]="      --type <portal|vector>  Service role (default portal)"
+            MSG[help_opt_url]="      --url <uri>       Import portal://, vector://, or nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <key>        Shared key"
             MSG[help_opt_port]="  -p, --port <port>      Listen port (default 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      ALPN (default now/1, omitted when default)"
@@ -226,8 +239,38 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        TLS mode (default 1)"
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <path>   Key path when TLS=2"
-            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.2.3)"
+            MSG[help_opt_socks]="      --socks <addr>    Portal outbound or Vector inbound SOCKS"
+            MSG[help_opt_up]="      --up <tcp|udp>    Vector uplink carrier (default udp)"
+            MSG[help_opt_down]="      --down <tcp|udp>  Vector downlink carrier (default udp)"
+            MSG[help_opt_pool]="      --pool <n>        Vector warm TLS pool (tcp/tcp)"
+            MSG[help_opt_sni]="      --sni <name>      Vector certificate name"
+            MSG[help_opt_pin]="      --pin <sha256>    Vector certificate pin"
+            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.6.0)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Script language (default zh)"
+            MSG[prompt_type]="Service type (portal/vector) or paste nowhere:// [%s]: "
+            MSG[prompt_type_hint]="Enter portal, vector, or paste a nowhere:// / vector:// / portal:// URL"
+            MSG[prompt_portal_host]="Portal host [%s]: "
+            MSG[prompt_up]="Uplink carrier (tcp/udp) [%s]: "
+            MSG[prompt_down]="Downlink carrier (tcp/udp) [%s]: "
+            MSG[prompt_pool]="Warm TLS pool [%s]: "
+            MSG[prompt_socks_in]="Inbound SOCKS listen [%s]: "
+            MSG[prompt_socks_out_enable]="Enable Portal outbound SOCKS? [%s]: "
+            MSG[prompt_socks_out]="Outbound SOCKS endpoint [%s]: "
+            MSG[prompt_sni]="SNI / cert name (optional, - to clear) [%s]: "
+            MSG[prompt_pin]="Cert pin SHA-256 (optional, - to clear) [%s]: "
+            MSG[info_configure_portal]="Configuring Portal"
+            MSG[info_configure_vector]="Configuring Vector"
+            MSG[info_converted_nowhere]="Converted nowhere:// share URI to vector://"
+            MSG[warn_migrated_nowhere]="Migrated nowhere:// to vector:// in %s"
+            MSG[warn_share_vector]="Current role is Vector; nowhere:// share URI applies to Portal only. Showing run URL:"
+            MSG[label_role]="Role:       %s"
+            MSG[label_socks]="SOCKS:      %s"
+            MSG[err_binary_missing]="nowhere binary not installed; install first"
+            MSG[err_invalid_type]="Invalid type: %s (use portal|vector)"
+            MSG[err_invalid_url]="Invalid URL: %s"
+            MSG[err_socks_required]="Vector requires an inbound SOCKS listen address"
+            MSG[err_portal_host_required]="Vector requires a Portal host"
+            MSG[info_launching_tui]="Launching Nowhere TUI (read-only; Ctrl+C to exit)..."
             MSG[help_opt_help]="  -h, --help             Show help"
             ;;
         ru)
@@ -259,7 +302,7 @@ set_language() {
             MSG[ok_uninstalled]="Nowhere удалён"
             MSG[warn_svc_missing]="Служба не запущена или не установлена"
             MSG[warn_svc_detect]="Не удалось определить статус службы"
-            MSG[info_configure]="Настройка Nowhere Portal"
+            MSG[info_configure]="Настройка службы Nowhere"
             MSG[prompt_config_intro]="Введите параметры (Enter — значение по умолчанию):"
             MSG[prompt_key]="Общий ключ [%s]: "
             MSG[prompt_port]="Порт [%s]: "
@@ -272,7 +315,7 @@ set_language() {
             MSG[prompt_keyfile]="Путь к ключу [%s]: "
             MSG[warn_spec_removed]="Параметр spec удалён в Nowhere 1.5; --spec игнорируется"
             MSG[warn_migrated_spec]="Удалён устаревший spec= из %s (Nowhere 1.5)"
-            MSG[warn_v15_incompat]="Nowhere 1.5 несовместим со старыми клиентами; обновляйте вместе. Anywhere пока не готов к 1.5."
+            MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux)."
             MSG[warn_sni_missing]="TLS=2, но публичное имя не задано; в share URI нет sni (проверка сертификата отключена)."
             MSG[label_generated_url]="Сгенерированный URL:"
             MSG[ok_config_updated]="Конфиг обновлён, служба перезапущена"
@@ -297,7 +340,7 @@ set_language() {
             MSG[prompt_overwrite]="Переустановить/обновить? [y/N]: "
             MSG[prompt_config_now]="Настроить службу сейчас? [Y/n]: "
             MSG[info_skip_config]="Настройка пропущена; позже выберите «Настройка службы»"
-            MSG[info_gen_config]="Создание конфига Nowhere Portal..."
+            MSG[info_gen_config]="Создание конфига службы Nowhere..."
             MSG[info_random_key]="Сгенерирован случайный ключ: %s"
             MSG[info_key_hint]="Enter — оставить, или введите свой ключ:"
             MSG[ok_config_written]="Конфиг записан в %s"
@@ -336,8 +379,9 @@ set_language() {
             MSG[menu_10]="Установить поддержку QR"
             MSG[menu_11]="Сменить язык"
             MSG[menu_12]="Установить указанную версию"
+            MSG[menu_13]="Запустить Nowhere TUI"
             MSG[menu_0]="Выход"
-            MSG[prompt_menu]="Введите пункт [0-12]: "
+            MSG[prompt_menu]="Введите пункт [0-13]: "
             MSG[ok_start_sent]="Команда запуска отправлена"
             MSG[ok_stop_sent]="Команда остановки отправлена"
             MSG[ok_restart_sent]="Команда перезапуска отправлена"
@@ -370,7 +414,10 @@ set_language() {
             MSG[help_opt_config]="  -c, --config           Настройка службы"
             MSG[help_opt_status]="  -s, --status           Статус"
             MSG[help_opt_share]="  -q, --share            URI для шаринга"
+            MSG[help_opt_tui]="      --tui              Запустить панель Nowhere TUI"
             MSG[help_opt_uninstall]="  --uninstall            Удаление"
+            MSG[help_opt_type]="      --type <portal|vector>  Роль службы (по умолчанию portal)"
+            MSG[help_opt_url]="      --url <uri>       Импорт portal://, vector:// или nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <ключ>       Общий ключ"
             MSG[help_opt_port]="  -p, --port <порт>      Порт (по умолчанию 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      ALPN (по умолчанию now/1, default не пишется)"
@@ -380,8 +427,38 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        Режим TLS (по умолчанию 1)"
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <путь>   Ключ при TLS=2"
-            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.2.3)"
+            MSG[help_opt_socks]="      --socks <addr>    Исходящий SOCKS Portal или входящий SOCKS Vector"
+            MSG[help_opt_up]="      --up <tcp|udp>    Uplink Vector (по умолчанию udp)"
+            MSG[help_opt_down]="      --down <tcp|udp>  Downlink Vector (по умолчанию udp)"
+            MSG[help_opt_pool]="      --pool <n>        Пул тёплых TLS (tcp/tcp)"
+            MSG[help_opt_sni]="      --sni <имя>       Имя сертификата Vector"
+            MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата Vector"
+            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.6.0)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Язык скрипта (по умолчанию zh)"
+            MSG[prompt_type]="Тип службы (portal/vector) или вставьте nowhere:// [%s]: "
+            MSG[prompt_type_hint]="Введите portal, vector или вставьте nowhere:// / vector:// / portal:// URL"
+            MSG[prompt_portal_host]="Хост Portal [%s]: "
+            MSG[prompt_up]="Uplink (tcp/udp) [%s]: "
+            MSG[prompt_down]="Downlink (tcp/udp) [%s]: "
+            MSG[prompt_pool]="Пул тёплых TLS [%s]: "
+            MSG[prompt_socks_in]="Входящий SOCKS [%s]: "
+            MSG[prompt_socks_out_enable]="Включить исходящий SOCKS Portal? [%s]: "
+            MSG[prompt_socks_out]="Исходящий SOCKS [%s]: "
+            MSG[prompt_sni]="SNI (необязательно, - очистить) [%s]: "
+            MSG[prompt_pin]="Pin SHA-256 (необязательно, - очистить) [%s]: "
+            MSG[info_configure_portal]="Настройка Portal"
+            MSG[info_configure_vector]="Настройка Vector"
+            MSG[info_converted_nowhere]="nowhere:// преобразован в vector://"
+            MSG[warn_migrated_nowhere]="nowhere:// мигрирован в vector:// в %s"
+            MSG[warn_share_vector]="Текущая роль — Vector; nowhere:// только для Portal. Текущий URL:"
+            MSG[label_role]="Роль:       %s"
+            MSG[label_socks]="SOCKS:      %s"
+            MSG[err_binary_missing]="Бинарник nowhere не установлен"
+            MSG[err_invalid_type]="Неверный тип: %s (portal|vector)"
+            MSG[err_invalid_url]="Неверный URL: %s"
+            MSG[err_socks_required]="Vector требует адрес входящего SOCKS"
+            MSG[err_portal_host_required]="Vector требует хост Portal"
+            MSG[info_launching_tui]="Запуск Nowhere TUI (только чтение; Ctrl+C для выхода)..."
             MSG[help_opt_help]="  -h, --help             Справка"
             ;;
         *)
@@ -414,7 +491,7 @@ set_language() {
             MSG[ok_uninstalled]="Nowhere 已卸载"
             MSG[warn_svc_missing]="服务未运行或未安装"
             MSG[warn_svc_detect]="无法检测服务状态"
-            MSG[info_configure]="配置 Nowhere Portal"
+            MSG[info_configure]="配置 Nowhere 服务"
             MSG[prompt_config_intro]="请输入配置参数（直接回车使用默认值）："
             MSG[prompt_key]="共享密钥 [%s]: "
             MSG[prompt_port]="监听端口 [%s]: "
@@ -427,7 +504,7 @@ set_language() {
             MSG[prompt_keyfile]="私钥路径 [%s]: "
             MSG[warn_spec_removed]="Nowhere 1.5 已移除 spec；忽略 --spec"
             MSG[warn_migrated_spec]="已从 %s 移除废弃的 spec=（Nowhere 1.5）"
-            MSG[warn_v15_incompat]="Nowhere 1.5 与旧版客户端协议不兼容，请一并升级；Anywhere 尚未适配 1.5。"
+            MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。"
             MSG[warn_sni_missing]="TLS=2 但未设置公网主机名；分享 URI 将省略 sni（跳过证书校验）。"
             MSG[label_generated_url]="生成的 URL："
             MSG[ok_config_updated]="配置已更新并重启服务"
@@ -452,7 +529,7 @@ set_language() {
             MSG[prompt_overwrite]="是否覆盖安装/升级? [y/N]: "
             MSG[prompt_config_now]="是否立即配置服务? [Y/n]: "
             MSG[info_skip_config]="跳过配置，之后可运行脚本选择“配置/重新配置服务”"
-            MSG[info_gen_config]="生成 Nowhere Portal 配置..."
+            MSG[info_gen_config]="生成 Nowhere 服务配置..."
             MSG[info_random_key]="已生成随机共享密钥: %s"
             MSG[info_key_hint]="直接回车使用随机密钥，或输入自定义密钥："
             MSG[ok_config_written]="配置已写入 %s"
@@ -491,8 +568,9 @@ set_language() {
             MSG[menu_10]="安装二维码支持库"
             MSG[menu_11]="切换语言"
             MSG[menu_12]="安装指定版本"
+            MSG[menu_13]="启动 Nowhere TUI"
             MSG[menu_0]="退出"
-            MSG[prompt_menu]="请输入选项 [0-12]: "
+            MSG[prompt_menu]="请输入选项 [0-13]: "
             MSG[ok_start_sent]="启动命令已发送"
             MSG[ok_stop_sent]="停止命令已发送"
             MSG[ok_restart_sent]="重启命令已发送"
@@ -525,7 +603,10 @@ set_language() {
             MSG[help_opt_config]="  -c, --config           交互式配置服务"
             MSG[help_opt_status]="  -s, --status           查看状态"
             MSG[help_opt_share]="  -q, --share            显示分享 URI"
+            MSG[help_opt_tui]="      --tui              启动 Nowhere TUI 面板"
             MSG[help_opt_uninstall]="  --uninstall            一键卸载"
+            MSG[help_opt_type]="      --type <portal|vector>  服务角色 (默认 portal)"
+            MSG[help_opt_url]="      --url <uri>       导入 portal://、vector:// 或 nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <密钥>       指定共享密钥"
             MSG[help_opt_port]="  -p, --port <端口>      指定监听端口 (默认 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      指定 ALPN (默认 now/1，默认值不写入 URL)"
@@ -535,8 +616,38 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        指定 TLS 模式 (默认 1)"
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
             MSG[help_opt_keyfile]="      --keyfile <路径>   TLS=2 时的私钥路径"
-            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.2.3)"
+            MSG[help_opt_socks]="      --socks <地址>    Portal 出站或 Vector 入站 SOCKS"
+            MSG[help_opt_up]="      --up <tcp|udp>    Vector 上行载体 (默认 udp)"
+            MSG[help_opt_down]="      --down <tcp|udp>  Vector 下行载体 (默认 udp)"
+            MSG[help_opt_pool]="      --pool <n>        Vector 预热 TLS 池 (tcp/tcp)"
+            MSG[help_opt_sni]="      --sni <名称>      Vector 证书名"
+            MSG[help_opt_pin]="      --pin <sha256>    Vector 证书固定"
+            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.6.0)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  脚本语言 (默认 zh)"
+            MSG[prompt_type]="服务类型 (portal/vector) 或粘贴 nowhere:// [%s]: "
+            MSG[prompt_type_hint]="输入 portal、vector，或粘贴 nowhere:// / vector:// / portal:// URL"
+            MSG[prompt_portal_host]="Portal 主机 [%s]: "
+            MSG[prompt_up]="上行载体 (tcp/udp) [%s]: "
+            MSG[prompt_down]="下行载体 (tcp/udp) [%s]: "
+            MSG[prompt_pool]="预热 TLS 池 [%s]: "
+            MSG[prompt_socks_in]="入站 SOCKS 监听 [%s]: "
+            MSG[prompt_socks_out_enable]="启用 Portal 出站 SOCKS? [%s]: "
+            MSG[prompt_socks_out]="出站 SOCKS 地址 [%s]: "
+            MSG[prompt_sni]="SNI / 证书名（可选，- 清除）[%s]: "
+            MSG[prompt_pin]="证书 pin SHA-256（可选，- 清除）[%s]: "
+            MSG[info_configure_portal]="配置 Portal"
+            MSG[info_configure_vector]="配置 Vector"
+            MSG[info_converted_nowhere]="已将 nowhere:// 分享 URI 转换为 vector://"
+            MSG[warn_migrated_nowhere]="已将 %s 中的 nowhere:// 迁移为 vector://"
+            MSG[warn_share_vector]="当前角色为 Vector；nowhere:// 分享仅适用于 Portal。当前运行 URL："
+            MSG[label_role]="角色:       %s"
+            MSG[label_socks]="SOCKS:      %s"
+            MSG[err_binary_missing]="未安装 nowhere 二进制，请先安装"
+            MSG[err_invalid_type]="无效类型: %s（使用 portal|vector）"
+            MSG[err_invalid_url]="无效 URL: %s"
+            MSG[err_socks_required]="Vector 需要入站 SOCKS 监听地址"
+            MSG[err_portal_host_required]="Vector 需要 Portal 主机"
+            MSG[info_launching_tui]="正在启动 Nowhere TUI（只读；Ctrl+C 退出）..."
             MSG[help_opt_help]="  -h, --help             显示帮助"
             ;;
     esac
@@ -782,6 +893,84 @@ append_query_param() {
     fi
 }
 
+get_query_param() {
+    local url="$1"
+    local key="$2"
+    echo "$url" | sed -n "s/.*[?&]${key}=\([^&#]*\).*/\1/p" | head -n1
+}
+
+url_encode_component() {
+    local LC_ALL=C
+    local value="$1" encoded="" c i
+    for (( i=0; i<${#value}; i++ )); do
+        c="${value:i:1}"
+        case "$c" in
+            [a-zA-Z0-9._~-]) encoded+="$c" ;;
+            *) printf -v c '%%%02X' "'$c"; encoded+="$c" ;;
+        esac
+    done
+    printf '%s' "$encoded"
+}
+
+encode_socks_endpoint() {
+    # Encode user:pass@host:port so reserved chars in credentials are safe in URLs.
+    local socks="$1"
+    if [[ "$socks" != *@* ]]; then
+        printf '%s' "$socks"
+        return
+    fi
+    local creds="${socks%@*}"
+    local hostport="${socks##*@}"
+    local user="${creds%%:*}"
+    local pass=""
+    if [[ "$creds" == *:* ]]; then
+        pass="${creds#*:}"
+    fi
+    if [[ -n "$pass" ]]; then
+        printf '%s:%s@%s' "$(url_encode_component "$user")" "$(url_encode_component "$pass")" "$hostport"
+    else
+        printf '%s@%s' "$(url_encode_component "$user")" "$hostport"
+    fi
+}
+
+detect_url_role() {
+    local url="$1"
+    case "$url" in
+        portal://*) echo "portal" ;;
+        vector://*|nowhere://*) echo "vector" ;;
+        *) echo "" ;;
+    esac
+}
+
+get_service_description() {
+    local url=""
+    [[ -f "$URL_FILE" ]] && url=$(tr -d '\n' < "$URL_FILE")
+    case "$(detect_url_role "$url")" in
+        vector) echo "Nowhere Vector" ;;
+        *) echo "Nowhere Portal" ;;
+    esac
+}
+
+parse_url_authority() {
+    # Sets PARSE_KEY PARSE_HOST PARSE_PORT from portal://|vector://|nowhere:// URL.
+    local url="${1%%#*}"
+    PARSE_KEY=""
+    PARSE_HOST=""
+    PARSE_PORT=""
+    PARSE_KEY=$(echo "$url" | sed -n 's#^[a-z]*://\([^@]*\)@.*#\1#p')
+    local rest
+    rest=$(echo "$url" | sed -n 's#^[a-z]*://[^@]*@\([^/?#]*\).*#\1#p')
+    if [[ "$rest" == \[*\]* ]]; then
+        PARSE_HOST=$(echo "$rest" | sed -n 's/^\[\([^]]*\)\].*/\1/p')
+        PARSE_PORT=$(echo "$rest" | sed -n 's/^[^]]*:\([0-9][0-9]*\)$/\1/p')
+    elif [[ "$rest" == *:* ]]; then
+        PARSE_PORT="${rest##*:}"
+        PARSE_HOST="${rest%:$PARSE_PORT}"
+    else
+        PARSE_HOST="$rest"
+    fi
+}
+
 build_portal_url() {
     local key="$1"
     local port="$2"
@@ -790,6 +979,7 @@ build_portal_url() {
     local alpn="$5"
     local crt="$6"
     local keyfile="$7"
+    local socks="${8:-}"
 
     local url="portal://${key}@:${port}?tls=${tls}&net=${net}"
     if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
@@ -798,6 +988,80 @@ build_portal_url() {
     if [[ "$tls" == "2" ]]; then
         url="${url}&crt=${crt}&key=${keyfile}"
     fi
+    if [[ -n "$socks" && "$socks" != "none" ]]; then
+        url="${url}&socks=$(encode_socks_endpoint "$socks")"
+    fi
+    echo "$url"
+}
+
+build_vector_url() {
+    local key="$1"
+    local host="$2"
+    local port="$3"
+    local up="$4"
+    local down="$5"
+    local socks="$6"
+    local alpn="${7:-}"
+    local pool="${8:-}"
+    local sni="${9:-}"
+    local pin="${10:-}"
+
+    local url="vector://${key}@${host}:${port}?up=${up}&down=${down}&socks=$(encode_socks_endpoint "$socks")"
+    if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+        pool="${pool:-5}"
+        url="${url}&pool=${pool}"
+    elif [[ -n "$pool" ]]; then
+        url="${url}&pool=${pool}"
+    fi
+    if [[ -n "$sni" && "$sni" != "none" ]]; then
+        url="${url}&sni=${sni}"
+    fi
+    if [[ -n "$pin" && "$pin" != "none" ]]; then
+        url="${url}&pin=${pin}"
+    fi
+    if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
+        url="${url}&alpn=$(url_encode_alpn "$alpn")"
+    fi
+    echo "$url"
+}
+
+# Populates CONVERTED_URL and CONVERTED_FRAGMENT (fragment may be empty).
+CONVERTED_URL=""
+CONVERTED_FRAGMENT=""
+convert_nowhere_to_vector() {
+    local url="$1"
+    local socks="${2:-$DEFAULT_SOCKS_IN}"
+    CONVERTED_URL=""
+    CONVERTED_FRAGMENT=""
+
+    if [[ "$url" == *#* ]]; then
+        CONVERTED_FRAGMENT="${url#*#}"
+        CONVERTED_FRAGMENT=$(url_decode_simple "$CONVERTED_FRAGMENT")
+        url="${url%%#*}"
+    fi
+
+    case "$url" in
+        nowhere://*)
+            url="vector://${url#nowhere://}"
+            ;;
+        vector://*)
+            ;;
+        *)
+            CONVERTED_URL="$url"
+            return 1
+            ;;
+    esac
+
+    local existing_socks
+    existing_socks=$(get_query_param "$url" "socks")
+    if [[ -z "$existing_socks" ]]; then
+        url=$(append_query_param "$url" "socks=$(encode_socks_endpoint "$socks")")
+    elif [[ -n "$2" ]]; then
+        url=$(strip_query_param "$url" "socks")
+        url=$(append_query_param "$url" "socks=$(encode_socks_endpoint "$socks")")
+    fi
+
+    CONVERTED_URL="$url"
     echo "$url"
 }
 
@@ -818,6 +1082,28 @@ migrate_portal_url_for_v15() {
     if [[ "$migrated" == "true" ]]; then
         echo "$url" > "$URL_FILE"
         log_warn "$(t warn_migrated_spec "$URL_FILE")"
+    fi
+}
+
+migrate_stored_url() {
+    migrate_portal_url_for_v15
+    if [[ ! -f "$URL_FILE" ]]; then
+        return 0
+    fi
+
+    local url
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+
+    if [[ "$url" == nowhere://* ]]; then
+        local converted socks="${ARG_SOCKS:-$DEFAULT_SOCKS_IN}"
+        convert_nowhere_to_vector "$url" "$socks" >/dev/null
+        converted="$CONVERTED_URL"
+        echo "$converted" > "$URL_FILE"
+        if [[ -n "$CONVERTED_FRAGMENT" && ! -f "$NAME_FILE" ]]; then
+            save_node_name "$CONVERTED_FRAGMENT"
+        fi
+        log_warn "$(t warn_migrated_nowhere "$URL_FILE")"
     fi
 }
 
@@ -950,21 +1236,41 @@ uninstall_nowhere() {
 
 # ==================== Service setup ====================
 write_launcher() {
+    migrate_stored_url
     cat > "$LAUNCHER" <<'EOF'
 #!/bin/bash
 URL_FILE="/etc/nowhere/url.conf"
 [[ -f "$URL_FILE" ]] || { echo "错误: 未找到 ${URL_FILE}" >&2; exit 1; }
 NOWHERE_URL=$(tr -d '\n' < "$URL_FILE")
 [[ -n "$NOWHERE_URL" ]] || { echo "错误: ${URL_FILE} 为空" >&2; exit 1; }
+if [[ "$NOWHERE_URL" == nowhere://* ]]; then
+    FRAG=""
+    BASE="$NOWHERE_URL"
+    if [[ "$BASE" == *#* ]]; then
+        FRAG="${BASE#*#}"
+        BASE="${BASE%%#*}"
+    fi
+    NOWHERE_URL="vector://${BASE#nowhere://}"
+    if ! echo "$NOWHERE_URL" | grep -qE '[?&]socks='; then
+        if [[ "$NOWHERE_URL" == *\?* ]]; then
+            NOWHERE_URL="${NOWHERE_URL}&socks=127.0.0.1:1080"
+        else
+            NOWHERE_URL="${NOWHERE_URL}?socks=127.0.0.1:1080"
+        fi
+    fi
+    printf '%s\n' "$NOWHERE_URL" > "$URL_FILE"
+fi
 exec /usr/local/bin/nowhere "$NOWHERE_URL"
 EOF
     chmod +x "$LAUNCHER"
 }
 
 install_systemd_service() {
+    local desc
+    desc=$(get_service_description)
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=Nowhere Portal
+Description=${desc}
 Documentation=https://github.com/${GITHUB_REPO}
 After=network-online.target
 Wants=network-online.target
@@ -986,12 +1292,14 @@ EOF
 }
 
 install_openrc_service() {
-    cat > "/etc/init.d/${SERVICE_NAME}" <<'EOF'
+    local desc
+    desc=$(get_service_description)
+    cat > "/etc/init.d/${SERVICE_NAME}" <<EOF
 #!/sbin/openrc-run
-description="Nowhere Portal"
+description="${desc}"
 command="/usr/local/bin/nowhere-launch.sh"
 command_background=true
-pidfile="/run/${RC_SVCNAME}.pid"
+pidfile="/run/\${RC_SVCNAME}.pid"
 depend() {
     need net
     after firewall
@@ -1092,25 +1400,178 @@ install_specific_version() {
 }
 
 # ==================== Interactive configure ====================
+apply_imported_url() {
+    # Sets IMPORTED_ROLE / IMPORTED_URL from portal://, vector://, or nowhere://.
+    local raw="$1"
+    local socks_override="${2:-}"
+    IMPORTED_URL=""
+    IMPORTED_ROLE=""
+
+    case "$raw" in
+        nowhere://*|vector://*)
+            IMPORTED_ROLE="vector"
+            local socks="${socks_override:-${ARG_SOCKS:-$DEFAULT_SOCKS_IN}}"
+            convert_nowhere_to_vector "$raw" "$socks" >/dev/null
+            IMPORTED_URL="$CONVERTED_URL"
+            if [[ -n "$CONVERTED_FRAGMENT" ]]; then
+                ARG_NAME="${ARG_NAME:-$CONVERTED_FRAGMENT}"
+            fi
+            if [[ "$raw" == nowhere://* ]]; then
+                log_info "$(t info_converted_nowhere)"
+            fi
+            ;;
+        portal://*)
+            IMPORTED_ROLE="portal"
+            IMPORTED_URL="$raw"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+save_and_install_config() {
+    local url="$1"
+    local host="$2"
+    local name="$3"
+    local auto_restart="${4:-false}"
+
+    echo "$url" > "$URL_FILE"
+    save_share_host "$host"
+    save_node_name "$name"
+    write_launcher
+
+    if [[ "$auto_restart" == "true" ]]; then
+        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+            install_systemd_service
+        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
+            install_openrc_service
+        fi
+        restart_service
+        log_success "$(t ok_config_updated)"
+        return
+    fi
+
+    log_success "$(t ok_config_saved "$URL_FILE")"
+
+    read -rp "$(t prompt_install_svc)" install_svc
+    if [[ ! "$install_svc" =~ ^[Nn]$ ]]; then
+        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+            install_systemd_service
+        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
+            install_openrc_service
+        else
+            log_warn "$(t warn_no_init)"
+            return
+        fi
+        log_success "$(t ok_svc_installed)"
+
+        read -rp "$(t prompt_start_svc)" start_svc
+        if [[ ! "$start_svc" =~ ^[Nn]$ ]]; then
+            restart_service
+            log_success "$(t ok_svc_started)"
+        fi
+    fi
+}
+
 configure_nowhere() {
     log_info "$(t info_configure)"
     mkdir -p "$CONFIG_DIR"
+    migrate_stored_url
 
     local existing_url=""
     [[ -f "$URL_FILE" ]] && existing_url=$(tr -d '\n' < "$URL_FILE")
 
-    local default_key default_port="2077" default_alpn="$DEFAULT_ALPN" default_net="mix" default_tls="1"
-    local default_host=""
+    local ROLE="portal"
+    local imported=false
+    IMPORTED_URL=""
+
+    # CLI --url import takes priority.
+    if [[ -n "$ARG_URL" ]]; then
+        if apply_imported_url "$ARG_URL" "$ARG_SOCKS"; then
+            imported=true
+            ROLE="$IMPORTED_ROLE"
+            existing_url="$IMPORTED_URL"
+        else
+            log_error "$(t err_invalid_url "$ARG_URL")"
+            return 1
+        fi
+    elif [[ -n "$ARG_TYPE" ]]; then
+        case "$ARG_TYPE" in
+            portal|vector) ROLE="$ARG_TYPE" ;;
+            *)
+                log_error "$(t err_invalid_type "$ARG_TYPE")"
+                return 1
+                ;;
+        esac
+    elif [[ -n "$existing_url" ]]; then
+        ROLE=$(detect_url_role "$existing_url")
+        ROLE="${ROLE:-portal}"
+    fi
+
+    local skip_prompts=false
+    if [[ "$AUTO_MODE" == "config" && ( -n "$ARG_KEY" || -n "$ARG_URL" ) ]]; then
+        skip_prompts=true
+    fi
+
+    if [[ "$skip_prompts" == false && "$imported" == false ]]; then
+        echo -e "${CYAN}$(t prompt_config_intro)${NC}"
+        echo -e "${CYAN}$(t prompt_type_hint)${NC}"
+        local type_input=""
+        read -rp "$(t prompt_type "$ROLE")" type_input
+        type_input="$(echo "$type_input" | tr -d '[:space:]')"
+        if [[ -n "$type_input" ]]; then
+            case "$type_input" in
+                portal|vector)
+                    ROLE="$type_input"
+                    ;;
+                nowhere://*|vector://*|portal://*)
+                    if apply_imported_url "$type_input" "$ARG_SOCKS"; then
+                        imported=true
+                        ROLE="$IMPORTED_ROLE"
+                        existing_url="$IMPORTED_URL"
+                    else
+                        log_error "$(t err_invalid_url "$type_input")"
+                        return 1
+                    fi
+                    ;;
+                *)
+                    log_error "$(t err_invalid_type "$type_input")"
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+
+    local default_key default_port="2077" default_alpn="$DEFAULT_ALPN"
+    local default_net="mix" default_tls="1"
+    local default_host="" default_socks="" default_up="udp" default_down="udp"
+    local default_pool="5" default_sni="" default_pin=""
     default_key=$(generate_random_key)
     default_host=$(load_share_host)
 
     if [[ -n "$existing_url" ]]; then
-        default_key=$(echo "$existing_url" | sed -n 's/.*portal:\/\/\([^@]*\)@.*/\1/p'); default_key=${default_key:-$(generate_random_key)}
-        default_port=$(echo "$existing_url" | sed -n 's/.*:\([0-9]*\).*/\1/p'); default_port=${default_port:-2077}
-        default_net=$(echo "$existing_url" | sed -n 's/.*[?&]net=\([^&]*\).*/\1/p'); default_net=${default_net:-mix}
-        default_tls=$(echo "$existing_url" | sed -n 's/.*[?&]tls=\([^&]*\).*/\1/p'); default_tls=${default_tls:-1}
+        parse_url_authority "$existing_url"
+        [[ -n "$PARSE_KEY" ]] && default_key="$PARSE_KEY"
+        [[ -n "$PARSE_PORT" ]] && default_port="$PARSE_PORT"
+        if [[ "$(detect_url_role "$existing_url")" == "vector" ]]; then
+            [[ -n "$PARSE_HOST" ]] && default_host="$PARSE_HOST"
+            default_up=$(get_query_param "$existing_url" "up"); default_up=${default_up:-udp}
+            default_down=$(get_query_param "$existing_url" "down"); default_down=${default_down:-udp}
+            default_pool=$(get_query_param "$existing_url" "pool"); default_pool=${default_pool:-5}
+            default_sni=$(get_query_param "$existing_url" "sni")
+            default_pin=$(get_query_param "$existing_url" "pin")
+            default_socks=$(get_query_param "$existing_url" "socks")
+            default_socks=$(url_decode_simple "${default_socks:-$DEFAULT_SOCKS_IN}")
+        else
+            default_net=$(get_query_param "$existing_url" "net"); default_net=${default_net:-mix}
+            default_tls=$(get_query_param "$existing_url" "tls"); default_tls=${default_tls:-1}
+            default_socks=$(get_query_param "$existing_url" "socks")
+            [[ -n "$default_socks" ]] && default_socks=$(url_decode_simple "$default_socks")
+        fi
         local existing_alpn
-        existing_alpn=$(echo "$existing_url" | sed -n 's/.*[?&]alpn=\([^&]*\).*/\1/p')
+        existing_alpn=$(get_query_param "$existing_url" "alpn")
         if [[ -n "$existing_alpn" ]]; then
             default_alpn=$(url_decode_simple "$existing_alpn")
         fi
@@ -1122,14 +1583,22 @@ configure_nowhere() {
     [[ -n "$ARG_NET" ]] && default_net="$ARG_NET"
     [[ -n "$ARG_TLS" ]] && default_tls="$ARG_TLS"
     [[ -n "$ARG_HOST" ]] && default_host="$ARG_HOST"
+    [[ -n "$ARG_SOCKS" ]] && default_socks="$ARG_SOCKS"
+    [[ -n "$ARG_UP" ]] && default_up="$ARG_UP"
+    [[ -n "$ARG_DOWN" ]] && default_down="$ARG_DOWN"
+    [[ -n "$ARG_POOL" ]] && default_pool="$ARG_POOL"
+    [[ -n "$ARG_SNI" ]] && default_sni="$ARG_SNI"
+    [[ -n "$ARG_PIN" ]] && default_pin="$ARG_PIN"
 
     local default_name
     default_name=$(load_node_name)
 
-    local key="$default_key" port="$default_port" alpn="$default_alpn" net="$default_net" tls="$default_tls" host="$default_host" name="$default_name"
-    local skip_prompts=false
-    if [[ "$AUTO_MODE" == "config" && -n "$ARG_KEY" ]]; then
-        skip_prompts=true
+    local key="$default_key" port="$default_port" alpn="$default_alpn"
+    local net="$default_net" tls="$default_tls" host="$default_host" name="$default_name"
+    local socks="$default_socks" up="$default_up" down="$default_down"
+    local pool="$default_pool" sni="$default_sni" pin="$default_pin"
+
+    if [[ "$skip_prompts" == true ]]; then
         key="${ARG_KEY:-$default_key}"
         port="${ARG_PORT:-$default_port}"
         alpn="${ARG_ALPN:-$default_alpn}"
@@ -1137,106 +1606,186 @@ configure_nowhere() {
         tls="${ARG_TLS:-$default_tls}"
         host="${ARG_HOST:-$default_host}"
         name="${ARG_NAME:-$default_name}"
-    fi
-
-    if [[ "$skip_prompts" == false ]]; then
-        echo -e "${CYAN}$(t prompt_config_intro)${NC}"
-
-        read -rp "$(t prompt_key "$default_key")" key_input
-        [[ -n "$key_input" ]] && key="$key_input"
-
-        read -rp "$(t prompt_port "$default_port")" port_input
-        [[ -n "$port_input" ]] && port="$port_input"
-
-        read -rp "$(t prompt_net "$default_net")" net_input
-        [[ -n "$net_input" ]] && net="$net_input"
-
-        read -rp "$(t prompt_tls "$default_tls")" tls_input
-        [[ -n "$tls_input" ]] && tls="$tls_input"
-
-        read -rp "$(t prompt_alpn "$default_alpn")" alpn_input
-        [[ -n "$alpn_input" ]] && alpn="$alpn_input"
-
-        read -rp "$(t prompt_host "$default_host")" host_input
-        # Allow clearing host by typing a single dash.
-        if [[ "$host_input" == "-" ]]; then
-            host=""
-        elif [[ -n "$host_input" ]]; then
-            host="$host_input"
-        fi
-
-        read -rp "$(t prompt_name "$default_name")" name_input
-        # Allow clearing node name by typing a single dash.
-        if [[ "$name_input" == "-" ]]; then
-            name=""
-        elif [[ -n "$name_input" ]]; then
-            name="$name_input"
+        socks="${ARG_SOCKS:-$default_socks}"
+        up="${ARG_UP:-$default_up}"
+        down="${ARG_DOWN:-$default_down}"
+        pool="${ARG_POOL:-$default_pool}"
+        sni="${ARG_SNI:-$default_sni}"
+        pin="${ARG_PIN:-$default_pin}"
+        if [[ "$imported" == true && -n "$IMPORTED_URL" && -z "$ARG_KEY" ]]; then
+            # Fully specified via --url; optionally rebuild if overrides present.
+            if [[ -z "$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_POOL$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT" ]]; then
+                echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
+                save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
+                return
+            fi
+            parse_url_authority "$IMPORTED_URL"
+            key="${ARG_KEY:-$PARSE_KEY}"
+            host="${ARG_HOST:-$PARSE_HOST}"
+            port="${ARG_PORT:-$PARSE_PORT}"
+            socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "socks")")}"
+            socks="${socks:-$DEFAULT_SOCKS_IN}"
+            up="${ARG_UP:-$(get_query_param "$IMPORTED_URL" "up")}"
+            up="${up:-udp}"
+            down="${ARG_DOWN:-$(get_query_param "$IMPORTED_URL" "down")}"
+            down="${down:-udp}"
+            pool="${ARG_POOL:-$(get_query_param "$IMPORTED_URL" "pool")}"
+            sni="${ARG_SNI:-$(get_query_param "$IMPORTED_URL" "sni")}"
+            pin="${ARG_PIN:-$(get_query_param "$IMPORTED_URL" "pin")}"
+            local ia
+            ia=$(get_query_param "$IMPORTED_URL" "alpn")
+            [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
+            [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
         fi
     fi
 
-    local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
-    if [[ "$tls" == "2" ]]; then
-        local default_crt="/etc/nowhere/cert.pem" default_keyfile="/etc/nowhere/key.pem"
-        crt="$default_crt"
-        keyfile="$default_keyfile"
-        if [[ "$skip_prompts" == true ]]; then
-            crt="${ARG_CERT:-$default_crt}"
-            keyfile="${ARG_KEYFILE:-$default_keyfile}"
-        else
-            read -rp "$(t prompt_cert "$default_crt")" crt_input
-            [[ -n "$crt_input" ]] && crt="$crt_input"
-            read -rp "$(t prompt_keyfile "$default_keyfile")" keyfile_input
-            [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
-        fi
-    fi
+    local url=""
+    if [[ "$ROLE" == "vector" ]]; then
+        log_info "$(t info_configure_vector)"
+        if [[ "$skip_prompts" == false ]]; then
+            echo -e "${CYAN}$(t prompt_config_intro)${NC}"
 
-    local url
-    url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile")
+            read -rp "$(t prompt_key "$key")" key_input
+            [[ -n "$key_input" ]] && key="$key_input"
+
+            read -rp "$(t prompt_portal_host "$host")" host_input
+            if [[ "$host_input" == "-" ]]; then
+                host=""
+            elif [[ -n "$host_input" ]]; then
+                host="$host_input"
+            fi
+
+            read -rp "$(t prompt_port "$port")" port_input
+            [[ -n "$port_input" ]] && port="$port_input"
+
+            read -rp "$(t prompt_up "$up")" up_input
+            [[ -n "$up_input" ]] && up="$up_input"
+
+            read -rp "$(t prompt_down "$down")" down_input
+            [[ -n "$down_input" ]] && down="$down_input"
+
+            if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+                read -rp "$(t prompt_pool "$pool")" pool_input
+                [[ -n "$pool_input" ]] && pool="$pool_input"
+            fi
+
+            socks="${socks:-$DEFAULT_SOCKS_IN}"
+            read -rp "$(t prompt_socks_in "$socks")" socks_input
+            [[ -n "$socks_input" ]] && socks="$socks_input"
+
+            read -rp "$(t prompt_sni "$sni")" sni_input
+            if [[ "$sni_input" == "-" ]]; then
+                sni=""
+            elif [[ -n "$sni_input" ]]; then
+                sni="$sni_input"
+            fi
+
+            read -rp "$(t prompt_pin "$pin")" pin_input
+            if [[ "$pin_input" == "-" ]]; then
+                pin=""
+            elif [[ -n "$pin_input" ]]; then
+                pin="$pin_input"
+            fi
+
+            read -rp "$(t prompt_alpn "$alpn")" alpn_input
+            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+
+            read -rp "$(t prompt_name "$name")" name_input
+            if [[ "$name_input" == "-" ]]; then
+                name=""
+            elif [[ -n "$name_input" ]]; then
+                name="$name_input"
+            fi
+        fi
+
+        if [[ -z "$host" ]]; then
+            log_error "$(t err_portal_host_required)"
+            return 1
+        fi
+        socks="${socks:-$DEFAULT_SOCKS_IN}"
+        if [[ -z "$socks" || "$socks" == "none" ]]; then
+            log_error "$(t err_socks_required)"
+            return 1
+        fi
+
+        url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$pool" "$sni" "$pin")
+    else
+        log_info "$(t info_configure_portal)"
+        if [[ "$skip_prompts" == false ]]; then
+            echo -e "${CYAN}$(t prompt_config_intro)${NC}"
+
+            read -rp "$(t prompt_key "$key")" key_input
+            [[ -n "$key_input" ]] && key="$key_input"
+
+            read -rp "$(t prompt_port "$port")" port_input
+            [[ -n "$port_input" ]] && port="$port_input"
+
+            read -rp "$(t prompt_net "$net")" net_input
+            [[ -n "$net_input" ]] && net="$net_input"
+
+            read -rp "$(t prompt_tls "$tls")" tls_input
+            [[ -n "$tls_input" ]] && tls="$tls_input"
+
+            read -rp "$(t prompt_alpn "$alpn")" alpn_input
+            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+
+            read -rp "$(t prompt_host "$host")" host_input
+            if [[ "$host_input" == "-" ]]; then
+                host=""
+            elif [[ -n "$host_input" ]]; then
+                host="$host_input"
+            fi
+
+            read -rp "$(t prompt_name "$name")" name_input
+            if [[ "$name_input" == "-" ]]; then
+                name=""
+            elif [[ -n "$name_input" ]]; then
+                name="$name_input"
+            fi
+
+            local socks_enable="n"
+            if [[ -n "$socks" && "$socks" != "none" ]]; then
+                socks_enable="Y"
+            fi
+            read -rp "$(t prompt_socks_out_enable "$socks_enable")" socks_en_input
+            socks_en_input="${socks_en_input:-$socks_enable}"
+            if [[ "$socks_en_input" =~ ^[Yy]$ ]]; then
+                read -rp "$(t prompt_socks_out "${socks:-proxy.example:1080}")" socks_input
+                [[ -n "$socks_input" ]] && socks="$socks_input"
+            else
+                socks=""
+            fi
+        fi
+
+        local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+        if [[ "$tls" == "2" ]]; then
+            local default_crt="/etc/nowhere/cert.pem" default_keyfile="/etc/nowhere/key.pem"
+            crt="$default_crt"
+            keyfile="$default_keyfile"
+            if [[ "$skip_prompts" == true ]]; then
+                crt="${ARG_CERT:-$default_crt}"
+                keyfile="${ARG_KEYFILE:-$default_keyfile}"
+            else
+                read -rp "$(t prompt_cert "$default_crt")" crt_input
+                [[ -n "$crt_input" ]] && crt="$crt_input"
+                read -rp "$(t prompt_keyfile "$default_keyfile")" keyfile_input
+                [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
+            fi
+        fi
+
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks")
+    fi
 
     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${url}${NC}\n"
 
     if [[ "$AUTO_MODE" == "config" ]]; then
-        echo "$url" > "$URL_FILE"
-        save_share_host "$host"
-        save_node_name "$name"
-        write_launcher
-        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-            install_systemd_service
-        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
-            install_openrc_service
-        fi
-        restart_service
-        log_success "$(t ok_config_updated)"
+        save_and_install_config "$url" "$host" "$name" "true"
         return
     fi
 
     read -rp "$(t prompt_save_config)" save
     if [[ ! "$save" =~ ^[Nn]$ ]]; then
-        echo "$url" > "$URL_FILE"
-        save_share_host "$host"
-        save_node_name "$name"
-        log_success "$(t ok_config_saved "$URL_FILE")"
-
-        write_launcher
-
-        read -rp "$(t prompt_install_svc)" install_svc
-        if [[ ! "$install_svc" =~ ^[Nn]$ ]]; then
-            if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-                install_systemd_service
-            elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
-                install_openrc_service
-            else
-                log_warn "$(t warn_no_init)"
-                return
-            fi
-            log_success "$(t ok_svc_installed)"
-
-            read -rp "$(t prompt_start_svc)" start_svc
-            if [[ ! "$start_svc" =~ ^[Nn]$ ]]; then
-                restart_service
-                log_success "$(t ok_svc_started)"
-            fi
-        fi
+        save_and_install_config "$url" "$host" "$name" "false"
     else
         log_info "$(t info_config_not_saved)"
     fi
@@ -1283,6 +1832,7 @@ upgrade_nowhere() {
     fi
 
     install_nowhere "$latest_version" true
+    migrate_stored_url
 
     if [[ "$was_running" == "true" ]]; then
         start_service
@@ -1300,16 +1850,90 @@ auto_install_nowhere() {
 
     install_nowhere
 
+    # Import nowhere:// / vector:// / portal:// via --url and finish.
+    if [[ -n "$ARG_URL" ]]; then
+        log_info "$(t info_gen_config)"
+        mkdir -p "$CONFIG_DIR"
+        if ! apply_imported_url "$ARG_URL" "$ARG_SOCKS"; then
+            log_error "$(t err_invalid_url "$ARG_URL")"
+            return 1
+        fi
+        local ROLE="$IMPORTED_ROLE"
+        local url="$IMPORTED_URL" host="" name
+        name=$(load_node_name)
+        parse_url_authority "$url"
+        if [[ "$ROLE" == "vector" ]]; then
+            host="$PARSE_HOST"
+            [[ -n "$ARG_HOST" ]] && host="$ARG_HOST"
+            # Rebuild if CLI overrides present.
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_POOL$ARG_SNI$ARG_PIN$ARG_ALPN" ]]; then
+                local key="${ARG_KEY:-$PARSE_KEY}"
+                local port="${ARG_PORT:-$PARSE_PORT}"
+                local socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$url" "socks")")}"
+                socks="${socks:-$DEFAULT_SOCKS_IN}"
+                local up="${ARG_UP:-$(get_query_param "$url" "up")}"
+                up="${up:-udp}"
+                local down="${ARG_DOWN:-$(get_query_param "$url" "down")}"
+                down="${down:-udp}"
+                local pool="${ARG_POOL:-$(get_query_param "$url" "pool")}"
+                local sni="${ARG_SNI:-$(get_query_param "$url" "sni")}"
+                local pin="${ARG_PIN:-$(get_query_param "$url" "pin")}"
+                local alpn="$DEFAULT_ALPN"
+                local ia
+                ia=$(get_query_param "$url" "alpn")
+                [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
+                [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
+                host="${ARG_HOST:-$PARSE_HOST}"
+                url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$pool" "$sni" "$pin")
+            fi
+        else
+            host="${ARG_HOST:-}"
+        fi
+        echo "$url" > "$URL_FILE"
+        save_share_host "$host"
+        save_node_name "$name"
+        write_launcher
+        log_success "$(t ok_config_written "$URL_FILE")"
+        echo -e "${CYAN}$(t label_run_url "${GREEN}${url}${NC}")${NC}"
+        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+            install_systemd_service
+            start_service
+            log_success "$(t ok_systemd_started)"
+        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
+            install_openrc_service
+            start_service
+            log_success "$(t ok_openrc_started)"
+        else
+            log_warn "$(t warn_manual_start)"
+        fi
+        return
+    fi
+
+    local ROLE="${ARG_TYPE:-portal}"
+    case "$ROLE" in
+        portal|vector) ;;
+        *)
+            log_error "$(t err_invalid_type "$ROLE")"
+            return 1
+            ;;
+    esac
+
     log_info "$(t info_gen_config)"
     mkdir -p "$CONFIG_DIR"
 
-    local key port alpn net tls host name url
+    local key port alpn net tls host name url socks up down pool sni pin
     port=${ARG_PORT:-2077}
     alpn=${ARG_ALPN:-$DEFAULT_ALPN}
     net=${ARG_NET:-mix}
     tls=${ARG_TLS:-1}
     host=${ARG_HOST:-}
     name=$(load_node_name)
+    socks=${ARG_SOCKS:-}
+    up=${ARG_UP:-udp}
+    down=${ARG_DOWN:-udp}
+    pool=${ARG_POOL:-5}
+    sni=${ARG_SNI:-}
+    pin=${ARG_PIN:-}
 
     if [[ -n "$ARG_KEY" ]]; then
         key="$ARG_KEY"
@@ -1317,52 +1941,103 @@ auto_install_nowhere() {
         key=$(generate_random_key)
     fi
 
-    if [[ -t 0 && -z "$ARG_KEY" ]]; then
-        echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
-        echo -e "${CYAN}$(t info_key_hint)${NC}"
-        read -rp "$(t prompt_key "$key")" key_input
-        [[ -n "$key_input" ]] && key="$key_input"
+    if [[ "$ROLE" == "vector" ]]; then
+        socks="${socks:-$DEFAULT_SOCKS_IN}"
+        if [[ -t 0 && -z "$ARG_KEY" ]]; then
+            echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
+            echo -e "${CYAN}$(t info_key_hint)${NC}"
+            read -rp "$(t prompt_key "$key")" key_input
+            [[ -n "$key_input" ]] && key="$key_input"
 
-        read -rp "$(t prompt_port "$port")" port_input
-        [[ -n "$port_input" ]] && port="$port_input"
+            read -rp "$(t prompt_portal_host "$host")" host_input
+            [[ -n "$host_input" ]] && host="$host_input"
 
-        read -rp "$(t prompt_net "$net")" net_input
-        [[ -n "$net_input" ]] && net="$net_input"
+            read -rp "$(t prompt_port "$port")" port_input
+            [[ -n "$port_input" ]] && port="$port_input"
 
-        read -rp "$(t prompt_tls "$tls")" tls_input
-        [[ -n "$tls_input" ]] && tls="$tls_input"
+            read -rp "$(t prompt_up "$up")" up_input
+            [[ -n "$up_input" ]] && up="$up_input"
 
-        read -rp "$(t prompt_alpn "$alpn")" alpn_input
-        [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            read -rp "$(t prompt_down "$down")" down_input
+            [[ -n "$down_input" ]] && down="$down_input"
 
-        read -rp "$(t prompt_host "$host")" host_input
-        if [[ "$host_input" == "-" ]]; then
-            host=""
-        elif [[ -n "$host_input" ]]; then
-            host="$host_input"
+            read -rp "$(t prompt_socks_in "$socks")" socks_input
+            [[ -n "$socks_input" ]] && socks="$socks_input"
+
+            read -rp "$(t prompt_sni "$sni")" sni_input
+            [[ -n "$sni_input" ]] && sni="$sni_input"
+
+            read -rp "$(t prompt_alpn "$alpn")" alpn_input
+            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+
+            read -rp "$(t prompt_name "$name")" name_input
+            if [[ "$name_input" == "-" ]]; then
+                name=""
+            elif [[ -n "$name_input" ]]; then
+                name="$name_input"
+            fi
+        fi
+        if [[ -z "$host" ]]; then
+            log_error "$(t err_portal_host_required)"
+            return 1
+        fi
+        url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$pool" "$sni" "$pin")
+    else
+        if [[ -t 0 && -z "$ARG_KEY" ]]; then
+            echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
+            echo -e "${CYAN}$(t info_key_hint)${NC}"
+            read -rp "$(t prompt_key "$key")" key_input
+            [[ -n "$key_input" ]] && key="$key_input"
+
+            read -rp "$(t prompt_port "$port")" port_input
+            [[ -n "$port_input" ]] && port="$port_input"
+
+            read -rp "$(t prompt_net "$net")" net_input
+            [[ -n "$net_input" ]] && net="$net_input"
+
+            read -rp "$(t prompt_tls "$tls")" tls_input
+            [[ -n "$tls_input" ]] && tls="$tls_input"
+
+            read -rp "$(t prompt_alpn "$alpn")" alpn_input
+            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+
+            read -rp "$(t prompt_host "$host")" host_input
+            if [[ "$host_input" == "-" ]]; then
+                host=""
+            elif [[ -n "$host_input" ]]; then
+                host="$host_input"
+            fi
+
+            read -rp "$(t prompt_name "$name")" name_input
+            if [[ "$name_input" == "-" ]]; then
+                name=""
+            elif [[ -n "$name_input" ]]; then
+                name="$name_input"
+            fi
+
+            if [[ -z "$socks" ]]; then
+                read -rp "$(t prompt_socks_out_enable "n")" socks_en_input
+                if [[ "$socks_en_input" =~ ^[Yy]$ ]]; then
+                    read -rp "$(t prompt_socks_out "proxy.example:1080")" socks_input
+                    [[ -n "$socks_input" ]] && socks="$socks_input"
+                fi
+            fi
         fi
 
-        read -rp "$(t prompt_name "$name")" name_input
-        if [[ "$name_input" == "-" ]]; then
-            name=""
-        elif [[ -n "$name_input" ]]; then
-            name="$name_input"
+        local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+        if [[ "$tls" == "2" ]]; then
+            crt=${ARG_CERT:-/etc/nowhere/cert.pem}
+            keyfile=${ARG_KEYFILE:-/etc/nowhere/key.pem}
+            if [[ -t 0 && -z "$ARG_CERT" ]]; then
+                read -rp "$(t prompt_cert "$crt")" crt_input
+                [[ -n "$crt_input" ]] && crt="$crt_input"
+                read -rp "$(t prompt_keyfile "$keyfile")" keyfile_input
+                [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
+            fi
         fi
+
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks")
     fi
-
-    local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
-    if [[ "$tls" == "2" ]]; then
-        crt=${ARG_CERT:-/etc/nowhere/cert.pem}
-        keyfile=${ARG_KEYFILE:-/etc/nowhere/key.pem}
-        if [[ -t 0 && -z "$ARG_CERT" ]]; then
-            read -rp "$(t prompt_cert "$crt")" crt_input
-            [[ -n "$crt_input" ]] && crt="$crt_input"
-            read -rp "$(t prompt_keyfile "$keyfile")" keyfile_input
-            [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
-        fi
-    fi
-
-    url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile")
 
     echo "$url" > "$URL_FILE"
     save_share_host "$host"
@@ -1392,18 +2067,30 @@ show_share_uri() {
         return
     fi
 
+    migrate_stored_url
+
     local server_url client_uri share_host tls_mode net_mode alpn_raw qr_tool key port node_name
     server_url=$(tr -d '\n' < "$URL_FILE")
 
-    key=$(echo "$server_url" | sed -n 's/^portal:\/\/\([^@]*\)@.*/\1/p')
-    port=$(echo "$server_url" | sed -n 's/.*:\([0-9][0-9]*\).*/\1/p')
-    port=${port:-2077}
+    local role
+    role=$(detect_url_role "$server_url")
+    if [[ "$role" == "vector" ]]; then
+        echo -e "\n${CYAN}$(t share_title)${NC}"
+        log_warn "$(t warn_share_vector)"
+        echo -e "${CYAN}$(t label_run_url_status "${GREEN}${server_url}${NC}")${NC}"
+        echo -e "${CYAN}========================================${NC}\n"
+        return
+    fi
 
-    tls_mode=$(echo "$server_url" | sed -n 's/.*[?&]tls=\([^&]*\).*/\1/p')
+    parse_url_authority "$server_url"
+    key="$PARSE_KEY"
+    port="${PARSE_PORT:-2077}"
+
+    tls_mode=$(get_query_param "$server_url" "tls")
     tls_mode=${tls_mode:-1}
-    net_mode=$(echo "$server_url" | sed -n 's/.*[?&]net=\([^&]*\).*/\1/p')
+    net_mode=$(get_query_param "$server_url" "net")
     net_mode=${net_mode:-mix}
-    alpn_raw=$(echo "$server_url" | sed -n 's/.*[?&]alpn=\([^&]*\).*/\1/p')
+    alpn_raw=$(get_query_param "$server_url" "alpn")
 
     share_host=$(load_share_host)
     if [[ -z "$share_host" ]]; then
@@ -1537,6 +2224,7 @@ select_language() {
 
 # ==================== Status ====================
 show_status() {
+    migrate_stored_url
     echo -e "\n${CYAN}$(t status_title)${NC}"
     if command -v nowhere &>/dev/null; then
         echo -e "$(t label_binary "${GREEN}${INSTALL_DIR}/nowhere${NC}")"
@@ -1547,14 +2235,33 @@ show_status() {
     echo -e "$(t label_system "${GREEN}${OS_ID}" "${OS_VERSION_ID}${NC}")"
     echo -e "$(t label_arch_libc "${GREEN}${ARCH}" "${LIBC}${NC}")"
     if [[ -f "$URL_FILE" ]]; then
+        local run_url role socks_val
+        run_url=$(tr -d '\n' < "$URL_FILE")
+        role=$(detect_url_role "$run_url")
+        role="${role:-unknown}"
+        socks_val=$(get_query_param "$run_url" "socks")
+        echo -e "$(t label_role "${GREEN}${role}${NC}")"
         echo -e "$(t label_config_file "${GREEN}${URL_FILE}${NC}")"
-        echo -e "$(t label_run_url_status "${GREEN}$(tr -d '\n' < "$URL_FILE")${NC}")"
+        echo -e "$(t label_run_url_status "${GREEN}${run_url}${NC}")"
+        if [[ -n "$socks_val" ]]; then
+            echo -e "$(t label_socks "${GREEN}$(url_decode_simple "$socks_val")${NC}")"
+        fi
     else
         echo -e "$(t label_config_file "${YELLOW}$(t not_configured)${NC}")"
     fi
     echo -e "\n${CYAN}$(t label_svc_status)${NC}"
     service_status
     echo -e "${CYAN}==================================${NC}\n"
+}
+
+launch_tui() {
+    if ! command -v nowhere &>/dev/null; then
+        log_error "$(t err_binary_missing)"
+        return 1
+    fi
+    log_info "$(t info_launching_tui)"
+    # TUI is read-only and does not own service lifecycle.
+    nowhere tui || nowhere
 }
 
 # ==================== Interactive menu ====================
@@ -1582,6 +2289,8 @@ show_menu() {
     echo -e "  ${YELLOW}9)${NC} $(t menu_9)"
     echo -e "  ${YELLOW}10)${NC} $(t menu_10)"
     echo -e "  ${YELLOW}11)${NC} $(t menu_11)"
+    echo -e "  ${YELLOW}12)${NC} $(t menu_12)"
+    echo -e "  ${YELLOW}13)${NC} $(t menu_13)"
     echo -e "  ${YELLOW}0)${NC} $(t menu_0)"
     echo -e "${GREEN}========================================${NC}"
 }
@@ -1608,6 +2317,7 @@ run_menu() {
             10) install_qr_support ;;
             11) select_language ;;
             12) install_specific_version ;;
+            13) launch_tui ;;
             0) log_info "$(t info_exit)"; exit 0 ;;
             *) log_error "$(t err_invalid_choice)" ;;
         esac
@@ -1633,7 +2343,10 @@ $(t help_opt_upgrade)
 $(t help_opt_config)
 $(t help_opt_status)
 $(t help_opt_share)
+$(t help_opt_tui)
 $(t help_opt_uninstall)
+$(t help_opt_type)
+$(t help_opt_url)
 $(t help_opt_key)
 $(t help_opt_port)
 $(t help_opt_alpn)
@@ -1643,6 +2356,12 @@ $(t help_opt_net)
 $(t help_opt_tls)
 $(t help_opt_cert)
 $(t help_opt_keyfile)
+$(t help_opt_socks)
+$(t help_opt_up)
+$(t help_opt_down)
+$(t help_opt_pool)
+$(t help_opt_sni)
+$(t help_opt_pin)
 $(t help_opt_version)
 $(t help_opt_lang)
 $(t help_opt_help)
@@ -1652,8 +2371,11 @@ $(t help_no_opt)
 $(t help_examples)
   bash oh-nowhere.sh --install --key mysecret --port 2088
   bash oh-nowhere.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
+  bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --socks 127.0.0.1:1080
+  bash oh-nowhere.sh --config --url 'nowhere://mysecret@relay.example:2077?up=tcp&down=tcp'
   bash oh-nowhere.sh -l en --status
-  bash oh-nowhere.sh --version v1.2.3 --install --key mysecret
+  bash oh-nowhere.sh --tui
+  bash oh-nowhere.sh --version v1.6.0 --install --key mysecret
 EOF
 }
 
@@ -1666,12 +2388,21 @@ parse_args() {
             -c|--config)        AUTO_MODE="config" ;;
             -s|--status)        AUTO_MODE="status" ;;
             -q|--share)         AUTO_MODE="share" ;;
+            --tui)              AUTO_MODE="tui" ;;
             --uninstall)        AUTO_MODE="uninstall" ;;
+            --type)             ARG_TYPE="$2"; shift ;;
+            --url)              ARG_URL="$2"; shift ;;
             -k|--key)           ARG_KEY="$2"; shift ;;
             -p|--port)          ARG_PORT="$2"; shift ;;
             --alpn)             ARG_ALPN="$2"; shift ;;
             --host)             ARG_HOST="$2"; shift ;;
             --name)             ARG_NAME="$2"; shift ;;
+            --socks)            ARG_SOCKS="$2"; shift ;;
+            --up)               ARG_UP="$2"; shift ;;
+            --down)             ARG_DOWN="$2"; shift ;;
+            --pool)             ARG_POOL="$2"; shift ;;
+            --sni)              ARG_SNI="$2"; shift ;;
+            --pin)              ARG_PIN="$2"; shift ;;
             --spec)
                 # Kept for automation compatibility; Nowhere 1.5 removed spec.
                 log_warn "$(t warn_spec_removed)"
@@ -1729,6 +2460,7 @@ main() {
         config)     configure_nowhere ;;
         status)     show_status ;;
         share)      show_share_uri ;;
+        tui)        launch_tui ;;
         uninstall)  uninstall_nowhere ;;
         menu)       run_menu ;;
     esac

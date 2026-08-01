@@ -2,7 +2,7 @@
 
 A one-click installation, upgrade, and management script for [Nowhere](https://github.com/NodePassProject/Nowhere).
 
-`oh-nowhere` is designed to make Nowhere Portal deployment simple on lightweight Linux servers. It can install the latest Nowhere binary, generate a Portal URL, write a system service, manage service lifecycle, and print a client share URI.
+`oh-nowhere` is designed to make Nowhere Portal / Vector deployment simple on lightweight Linux servers. It can install the latest Nowhere binary, generate a Portal or Vector URL, write a system service, manage service lifecycle, launch the read-only TUI, and print a client share URI.
 
 ## Features
 
@@ -17,22 +17,30 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 * Debian, Ubuntu, and Alpine support
 * x86_64 and aarch64 architecture detection
 * GNU libc and musl build selection
-* Portal URL generation
+* Portal or Vector role selection
+* Portal outbound SOCKS5 and Vector inbound SOCKS5
+* Import `nowhere://` share URIs (auto-convert to `vector://`)
+* Launch Nowhere read-only TUI (`nowhere tui`)
 * Service status display
-* Client share URI output (`nowhere://`)
+* Client share URI output (`nowhere://`) for Portal
 * Optional QR code support
 * English, Chinese, and Russian script UI
 
-## Nowhere 1.5 Notes
+## Nowhere 1.5 / 1.6 Notes
 
-Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. This script is adapted for that release:
+Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. Nowhere **1.6** adds a read-only TUI and structured local telemetry (Linux-only). Wire protocol is unchanged from 1.5.x.
+
+This script is adapted for those releases:
 
 * Portal URLs no longer include `spec=`
 * Optional custom `alpn` is supported (default `now/1` is omitted from the URL)
 * Share links remain `nowhere://` import URIs with `up` / `down` carriers
-* `vector://` is only the local SOCKS5 client process URL for the Nowhere binary; this script does **not** generate or manage it
+* `vector://` runs the native SOCKS5 client; this script can generate and manage it
+* Pasting or importing `nowhere://` automatically converts to `vector://` (adds inbound `socks=` if missing)
 * On upgrade, any stored `spec=` is stripped from `/etc/nowhere/url.conf`
-* Portal and clients must be upgraded together; Anywhere is not ready for 1.5 yet
+* Stored `nowhere://` run URLs are migrated to `vector://`
+* Menu item 13 / `--tui` launches the Nowhere dashboard (observational only)
+* Portal and clients must be upgraded together for 1.5+ wire; Anywhere is not ready yet
 
 ## Supported Systems
 
@@ -77,12 +85,13 @@ Then select the action from the menu:
 10. Install QR code support
 11. Change language
 12. Install specific version
+13. Launch Nowhere TUI
 0. Exit
 ```
 
 ## One-shot Installation
 
-Install Nowhere with default values:
+Install Nowhere with default Portal values:
 
 ```bash
 sudo ./oh-nowhere.sh --install --lang en
@@ -106,6 +115,31 @@ This generates a Portal URL similar to:
 portal://change-me@:2077?tls=1&net=mix
 ```
 
+Install as Vector (local SOCKS5 client):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type vector \
+  --key change-me \
+  --host relay.example \
+  --port 2077 \
+  --up tcp \
+  --down tcp \
+  --socks 127.0.0.1:1080 \
+  --lang en
+```
+
+Import a share URI (auto-converts `nowhere://` → `vector://`):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --url 'nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example' \
+  --socks 127.0.0.1:1080 \
+  --lang en
+```
+
 ## Install a Specific Version
 
 Install a specific upstream release from the command line:
@@ -113,7 +147,7 @@ Install a specific upstream release from the command line:
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.5.0 \
+  --version v1.6.0 \
   --key change-me \
   --port 2077 \
   --lang en
@@ -122,12 +156,23 @@ sudo ./oh-nowhere.sh \
 Upgrade or downgrade to a specific version:
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.5.0 --lang en
+sudo ./oh-nowhere.sh --upgrade --version v1.6.0 --lang en
 ```
 
 You can also select a version interactively by choosing menu item `12. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
 
-## TLS Modes
+## Service Roles
+
+Configure menu item 3 asks for `portal` or `vector`, or accepts a pasted `nowhere://` / `vector://` / `portal://` URL.
+
+| Role | Run URL | SOCKS |
+| ---- | ------- | ----- |
+| `portal` | `portal://key@:port?...` | Optional **outbound** proxy (`socks=host:port`) |
+| `vector` | `vector://key@portal-host:port?...` | Required **inbound** listener (default `127.0.0.1:1080`) |
+
+Only one role is active at a time (single `url.conf` / `nowhere` service). Reconfigure to switch.
+
+## TLS Modes (Portal)
 
 ### Self-signed TLS
 
@@ -136,6 +181,7 @@ The default mode is `tls=1`.
 ```bash
 sudo ./oh-nowhere.sh \
   --config \
+  --type portal \
   --key change-me \
   --port 2077 \
   --net mix \
@@ -152,6 +198,7 @@ Use `tls=2` when you want to provide your own certificate and private key. Set `
 ```bash
 sudo ./oh-nowhere.sh \
   --config \
+  --type portal \
   --key change-me \
   --port 2077 \
   --net mix \
@@ -162,15 +209,15 @@ sudo ./oh-nowhere.sh \
   --lang en
 ```
 
-## Network Modes
+## Network Modes (Portal)
 
 The script supports the following Nowhere Portal network modes:
 
-| Mode  | Description                         | Share URI carriers      |
-| ----- | ----------------------------------- | ----------------------- |
-| `mix` | Enable mixed TCP/UDP transport mode | `up=udp&down=udp`       |
+| Mode  | Description                         | Share URI carriers       |
+| ----- | ----------------------------------- | ------------------------ |
+| `mix` | Enable mixed TCP/UDP transport mode | `up=udp&down=udp`        |
 | `tcp` | Enable TCP mode                     | `up=tcp&down=tcp&pool=5` |
-| `udp` | Enable UDP mode                     | `up=udp&down=udp`       |
+| `udp` | Enable UDP mode                     | `up=udp&down=udp`        |
 
 Default:
 
@@ -180,7 +227,7 @@ mix
 
 ## Client Share URI
 
-Menu item 9 / `--share` prints a `nowhere://` import URI for clients (not `vector://`).
+Menu item 9 / `--share` prints a `nowhere://` import URI for clients when the service role is Portal (not for Vector).
 
 Examples:
 
@@ -193,6 +240,19 @@ nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example#
 * Node name is appended as a percent-encoded `#fragment`; set it with `--name` (default `Nowhere-<country>-<first IP octet>`, stored in `/etc/nowhere/name.conf`)
 * Portal-only parameters (`tls`, `crt`, `key`, `net`, `dial`, `rate`, `etar`, `log`, outbound `socks`) are not copied into the share URI
 * Custom `alpn` is copied when it differs from `now/1`
+* On a Vector instance, `--share` prints the current `vector://` run URL instead
+
+Paste a `nowhere://` share URI into configure / `--url` to run Vector locally.
+
+## Nowhere TUI
+
+Menu item 13 / `--tui` runs:
+
+```bash
+nowhere tui
+```
+
+The dashboard discovers local Portal/Vector instances and shows live metrics. It is read-only and does not start, stop, or reconfigure the service.
 
 ## CLI Usage
 
@@ -202,26 +262,35 @@ sudo ./oh-nowhere.sh [options]
 
 ### Options
 
-| Option                      | Description                          |
-| --------------------------- | ------------------------------------ |
-| `-i`, `--install`           | One-shot install, upgrade, and start |
-| `-u`, `--upgrade`           | Upgrade Nowhere                      |
-| `-c`, `--config`            | Configure the service                |
-| `-s`, `--status`            | Show service status                  |
-| `-q`, `--share`             | Show client share URI                |
-| `--uninstall`               | Uninstall Nowhere                    |
-| `-k`, `--key <key>`         | Set the shared key                   |
-| `-p`, `--port <port>`       | Set the listen port, default `2077`  |
-| `--alpn <alpn>`             | Set ALPN; default `now/1` is omitted |
-| `--host <hostname>`         | Public hostname for share URI / SNI  |
-| `--name <name>`             | Node name for share URI `#` fragment |
-| `--net <mix\|tcp\|udp>`     | Set the network mode, default `mix`  |
-| `--tls <1\|2>`              | Set TLS mode, default `1`            |
-| `--cert <path>`             | Certificate path when `tls=2`        |
-| `--keyfile <path>`          | Private key path when `tls=2`        |
-| `-v`, `--version <ver>`     | Install a specific release version   |
-| `-l`, `--lang <en\|zh\|ru>` | Set script language, default `zh`    |
-| `-h`, `--help`              | Show help                            |
+| Option                      | Description                                      |
+| --------------------------- | ------------------------------------------------ |
+| `-i`, `--install`           | One-shot install, upgrade, and start             |
+| `-u`, `--upgrade`           | Upgrade Nowhere                                  |
+| `-c`, `--config`            | Configure the service                            |
+| `-s`, `--status`            | Show service status                              |
+| `-q`, `--share`             | Show client share URI                            |
+| `--tui`                     | Launch Nowhere TUI                               |
+| `--uninstall`               | Uninstall Nowhere                                |
+| `--type <portal\|vector>`   | Service role, default `portal`                   |
+| `--url <uri>`               | Import `portal://`, `vector://`, or `nowhere://` |
+| `-k`, `--key <key>`         | Set the shared key                               |
+| `-p`, `--port <port>`       | Set the listen / Portal port, default `2077`     |
+| `--alpn <alpn>`             | Set ALPN; default `now/1` is omitted             |
+| `--host <hostname>`         | Portal: share/SNI host; Vector: Portal host      |
+| `--name <name>`             | Node name for share URI `#` fragment             |
+| `--net <mix\|tcp\|udp>`     | Portal network mode, default `mix`               |
+| `--tls <1\|2>`              | Portal TLS mode, default `1`                     |
+| `--cert <path>`             | Certificate path when `tls=2`                    |
+| `--keyfile <path>`          | Private key path when `tls=2`                    |
+| `--socks <addr>`            | Portal outbound or Vector inbound SOCKS          |
+| `--up <tcp\|udp>`           | Vector uplink carrier, default `udp`             |
+| `--down <tcp\|udp>`         | Vector downlink carrier, default `udp`           |
+| `--pool <n>`                | Vector warm TLS pool (`tcp/tcp`)                 |
+| `--sni <name>`              | Vector certificate name                          |
+| `--pin <sha256>`            | Vector certificate pin                           |
+| `-v`, `--version <ver>`     | Install a specific release version               |
+| `-l`, `--lang <en\|zh\|ru>` | Set script language, default `zh`                |
+| `-h`, `--help`              | Show help                                        |
 
 `--spec` is accepted but ignored with a warning (removed in Nowhere 1.5).
 
@@ -242,10 +311,10 @@ sudo ./oh-nowhere.sh --upgrade --lang en
 Install a specific Nowhere version:
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.5.0 --lang en
+sudo ./oh-nowhere.sh --install --version v1.6.0 --lang en
 ```
 
-Reconfigure the Portal:
+Reconfigure the service:
 
 ```bash
 sudo ./oh-nowhere.sh --config --lang en
@@ -255,6 +324,12 @@ Show client share URI:
 
 ```bash
 sudo ./oh-nowhere.sh --share --lang en
+```
+
+Launch TUI:
+
+```bash
+sudo ./oh-nowhere.sh --tui --lang en
 ```
 
 Uninstall Nowhere:
@@ -277,13 +352,13 @@ The script may create or manage the following files:
 /etc/init.d/nowhere
 ```
 
-The generated Portal URL is stored at:
+The generated Portal or Vector URL is stored at:
 
 ```text
 /etc/nowhere/url.conf
 ```
 
-Optional public hostname for share / SNI:
+Optional public hostname for share / SNI (Portal) or remembered Portal host:
 
 ```text
 /etc/nowhere/host.conf
@@ -295,7 +370,7 @@ Node name appended to the share URI as `#fragment`:
 /etc/nowhere/name.conf
 ```
 
-The service launcher reads `url.conf` and starts Nowhere with the stored Portal URL.
+The service launcher reads `url.conf` and starts Nowhere with the stored URL. If the file still contains `nowhere://`, the launcher migrates it to `vector://` automatically.
 
 ## systemd Management
 
@@ -355,6 +430,7 @@ sudo ./oh-nowhere.sh --share --lang en
 * Do not publish your Portal URL publicly.
 * For long-running public services, prefer `tls=2` with a valid certificate and `--host` for SNI.
 * If you use `tls=1`, make sure your client is configured to skip certificate verification.
+* Vector inbound SOCKS exposed beyond localhost should use authentication and network policy.
 * Review the script before running it on production servers.
 
 ## Upstream Project
