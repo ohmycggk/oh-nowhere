@@ -40,7 +40,7 @@ This script is adapted for those releases:
 * On upgrade, any stored `spec=` is stripped from `/etc/nowhere/url.conf`
 * Stored `nowhere://` run URLs are migrated to `vector://`
 * Menu item 13 / `--tui` launches the Nowhere dashboard (observational only)
-* Portal and clients must be upgraded together for 1.5+ wire; Anywhere is not ready yet
+* Portal and clients must be upgraded together for 1.5+ wire
 
 ## Supported Systems
 
