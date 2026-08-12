@@ -24,6 +24,10 @@ LAUNCHER="${INSTALL_DIR}/nowhere-launch.sh"
 SERVICE_NAME="nowhere"
 GITHUB_REPO="NodePassProject/Nowhere"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+SCRIPT_REPO="ohmycggk/oh-nowhere"
+SCRIPT_BRANCH="main"
+SCRIPT_FILENAME="oh-nowhere.sh"
+SCRIPT_RAW_URL="https://raw.githubusercontent.com/${SCRIPT_REPO}/${SCRIPT_BRANCH}/${SCRIPT_FILENAME}"
 DEFAULT_ALPN="now/1"
 
 # Detected system info
@@ -51,6 +55,7 @@ ARG_LANG=""
 ARG_VERSION=""
 ARG_TYPE=""
 ARG_SOCKS=""
+ARG_NEXT=""
 ARG_UP=""
 ARG_DOWN=""
 ARG_POOL=""
@@ -127,7 +132,14 @@ set_language() {
             MSG[prompt_keyfile]="Private key path [%s]: "
             MSG[warn_spec_removed]="spec was removed in Nowhere 1.5; ignoring --spec"
             MSG[warn_migrated_spec]="Removed deprecated spec= from %s (Nowhere 1.5)"
-            MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only)."
+            MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only). 1.7 adds native Portal chaining (next=); every hop must be 1.7.0+."
+            MSG[help_opt_next]="      --next <key@host:port>  Portal native upstream (mutually exclusive with --socks)"
+            MSG[prompt_outbound_mode]="Portal outbound (none/socks/next) [%s]: "
+            MSG[prompt_next]="Native upstream Portal next=<key@host:port> [%s]: "
+            MSG[err_next_socks_mutex]="Portal next= and outbound socks= are mutually exclusive"
+            MSG[err_next_required]="Native upstream requires next=<key@host:port>"
+            MSG[label_next]="Next:       %s"
+            MSG[warn_share_chain]="Chained Portal: next= is server-side only and is not included in the client share URI."
             MSG[warn_sni_missing]="TLS=2 but no public hostname set; share URI omits sni (certificate verification disabled)."
             MSG[label_generated_url]="Generated URL:"
             MSG[ok_config_updated]="Config updated and service restarted"
@@ -192,8 +204,9 @@ set_language() {
             MSG[menu_11]="Change language"
             MSG[menu_12]="Install specific version"
             MSG[menu_13]="Launch Nowhere TUI"
+            MSG[menu_14]="Upgrade oh-nowhere script"
             MSG[menu_0]="Exit"
-            MSG[prompt_menu]="Enter option [0-13]: "
+            MSG[prompt_menu]="Enter option [0-14]: "
             MSG[ok_start_sent]="Start command sent"
             MSG[ok_stop_sent]="Stop command sent"
             MSG[ok_restart_sent]="Restart command sent"
@@ -240,12 +253,12 @@ set_language() {
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <path>   Key path when TLS=2"
             MSG[help_opt_socks]="      --socks <addr>    Portal outbound or Vector inbound SOCKS"
-            MSG[help_opt_up]="      --up <tcp|udp>    Vector uplink carrier (default udp)"
-            MSG[help_opt_down]="      --down <tcp|udp>  Vector downlink carrier (default udp)"
-            MSG[help_opt_pool]="      --pool <n>        Vector warm TLS pool (tcp/tcp)"
-            MSG[help_opt_sni]="      --sni <name>      Vector certificate name"
-            MSG[help_opt_pin]="      --pin <sha256>    Vector certificate pin"
-            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.6.0)"
+            MSG[help_opt_up]="      --up <tcp|udp>    Uplink carrier (Vector or Portal next upstream; default udp)"
+            MSG[help_opt_down]="      --down <tcp|udp>  Downlink carrier (Vector or Portal next upstream; default udp)"
+            MSG[help_opt_pool]="      --pool <n>        Warm TLS pool for tcp/tcp (Vector or Portal next upstream)"
+            MSG[help_opt_sni]="      --sni <name>      Certificate name (Vector or Portal next upstream)"
+            MSG[help_opt_pin]="      --pin <sha256>    Certificate pin (Vector or Portal next upstream)"
+            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.7.0)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Script language (default zh)"
             MSG[prompt_type]="Service type (portal/vector) or paste nowhere:// [%s]: "
             MSG[prompt_type_hint]="Enter portal, vector, or paste a nowhere:// / vector:// / portal:// URL"
@@ -271,6 +284,16 @@ set_language() {
             MSG[err_socks_required]="Vector requires an inbound SOCKS listen address"
             MSG[err_portal_host_required]="Vector requires a Portal host"
             MSG[info_launching_tui]="Launching Nowhere TUI (read-only; Ctrl+C to exit)..."
+            MSG[info_upgrading_script]="Upgrading oh-nowhere management script..."
+            MSG[info_script_already_latest]="Script is already up to date"
+            MSG[info_script_restart_hint]="Restart this script to use the new version"
+            MSG[prompt_script_upgrade_confirm]="Download and replace the current script? [y/N]: "
+            MSG[label_script_path]="Script path: %s"
+            MSG[ok_script_upgraded]="Script upgraded (backup: %s)"
+            MSG[err_script_download]="Failed to download latest script"
+            MSG[err_script_verify]="Downloaded script failed syntax check"
+            MSG[err_script_install]="Failed to install updated script"
+            MSG[help_opt_upgrade_script]="      --upgrade-script     Upgrade this oh-nowhere script from GitHub"
             MSG[help_opt_help]="  -h, --help             Show help"
             ;;
         ru)
@@ -315,7 +338,14 @@ set_language() {
             MSG[prompt_keyfile]="Путь к ключу [%s]: "
             MSG[warn_spec_removed]="Параметр spec удалён в Nowhere 1.5; --spec игнорируется"
             MSG[warn_migrated_spec]="Удалён устаревший spec= из %s (Nowhere 1.5)"
-            MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux)."
+            MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux). 1.7 добавляет цепочку Portal (next=); каждый узел должен быть 1.7.0+."
+            MSG[help_opt_next]="      --next <key@host:port>  Следующий Portal (next=; несовместимо с --socks)"
+            MSG[prompt_outbound_mode]="Исходящий Portal (none/socks/next) [%s]: "
+            MSG[prompt_next]="Следующий Portal next=<key@host:port> [%s]: "
+            MSG[err_next_socks_mutex]="Portal next= и исходящий socks= несовместимы"
+            MSG[err_next_required]="Для native upstream нужен next=<key@host:port>"
+            MSG[label_next]="Next:       %s"
+            MSG[warn_share_chain]="Цепочка Portal: next= только на сервере и не попадает в share URI клиента."
             MSG[warn_sni_missing]="TLS=2, но публичное имя не задано; в share URI нет sni (проверка сертификата отключена)."
             MSG[label_generated_url]="Сгенерированный URL:"
             MSG[ok_config_updated]="Конфиг обновлён, служба перезапущена"
@@ -380,8 +410,9 @@ set_language() {
             MSG[menu_11]="Сменить язык"
             MSG[menu_12]="Установить указанную версию"
             MSG[menu_13]="Запустить Nowhere TUI"
+            MSG[menu_14]="Обновить скрипт oh-nowhere"
             MSG[menu_0]="Выход"
-            MSG[prompt_menu]="Введите пункт [0-13]: "
+            MSG[prompt_menu]="Введите пункт [0-14]: "
             MSG[ok_start_sent]="Команда запуска отправлена"
             MSG[ok_stop_sent]="Команда остановки отправлена"
             MSG[ok_restart_sent]="Команда перезапуска отправлена"
@@ -428,12 +459,12 @@ set_language() {
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <путь>   Ключ при TLS=2"
             MSG[help_opt_socks]="      --socks <addr>    Исходящий SOCKS Portal или входящий SOCKS Vector"
-            MSG[help_opt_up]="      --up <tcp|udp>    Uplink Vector (по умолчанию udp)"
-            MSG[help_opt_down]="      --down <tcp|udp>  Downlink Vector (по умолчанию udp)"
-            MSG[help_opt_pool]="      --pool <n>        Пул тёплых TLS (tcp/tcp)"
-            MSG[help_opt_sni]="      --sni <имя>       Имя сертификата Vector"
-            MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата Vector"
-            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.6.0)"
+            MSG[help_opt_up]="      --up <tcp|udp>    Uplink (Vector или upstream Portal next; по умолчанию udp)"
+            MSG[help_opt_down]="      --down <tcp|udp>  Downlink (Vector или upstream Portal next; по умолчанию udp)"
+            MSG[help_opt_pool]="      --pool <n>        Пул тёплых TLS для tcp/tcp (Vector или Portal next)"
+            MSG[help_opt_sni]="      --sni <имя>       Имя сертификата (Vector или Portal next)"
+            MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата (Vector или Portal next)"
+            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.7.0)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Язык скрипта (по умолчанию zh)"
             MSG[prompt_type]="Тип службы (portal/vector) или вставьте nowhere:// [%s]: "
             MSG[prompt_type_hint]="Введите portal, vector или вставьте nowhere:// / vector:// / portal:// URL"
@@ -459,6 +490,16 @@ set_language() {
             MSG[err_socks_required]="Vector требует адрес входящего SOCKS"
             MSG[err_portal_host_required]="Vector требует хост Portal"
             MSG[info_launching_tui]="Запуск Nowhere TUI (только чтение; Ctrl+C для выхода)..."
+            MSG[info_upgrading_script]="Обновление скрипта управления oh-nowhere..."
+            MSG[info_script_already_latest]="Скрипт уже актуален"
+            MSG[info_script_restart_hint]="Перезапустите скрипт, чтобы использовать новую версию"
+            MSG[prompt_script_upgrade_confirm]="Скачать и заменить текущий скрипт? [y/N]: "
+            MSG[label_script_path]="Путь к скрипту: %s"
+            MSG[ok_script_upgraded]="Скрипт обновлён (резервная копия: %s)"
+            MSG[err_script_download]="Не удалось скачать последнюю версию скрипта"
+            MSG[err_script_verify]="Скачанный скрипт не прошёл проверку синтаксиса"
+            MSG[err_script_install]="Не удалось установить обновлённый скрипт"
+            MSG[help_opt_upgrade_script]="      --upgrade-script     Обновить этот скрипт oh-nowhere с GitHub"
             MSG[help_opt_help]="  -h, --help             Справка"
             ;;
         *)
@@ -504,7 +545,14 @@ set_language() {
             MSG[prompt_keyfile]="私钥路径 [%s]: "
             MSG[warn_spec_removed]="Nowhere 1.5 已移除 spec；忽略 --spec"
             MSG[warn_migrated_spec]="已从 %s 移除废弃的 spec=（Nowhere 1.5）"
-            MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。"
+            MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。1.7 新增 Portal 原生链式转发（next=），链路上各节点须 ≥1.7.0。"
+            MSG[help_opt_next]="      --next <key@host:port>  Portal 原生上游（与 --socks 互斥）"
+            MSG[prompt_outbound_mode]="Portal 出站模式 (none/socks/next) [%s]: "
+            MSG[prompt_next]="原生上游 Portal next=<key@host:port> [%s]: "
+            MSG[err_next_socks_mutex]="Portal 的 next= 与出站 socks= 不能同时启用"
+            MSG[err_next_required]="原生上游需要 next=<key@host:port>"
+            MSG[label_next]="Next:       %s"
+            MSG[warn_share_chain]="当前为链式 Portal：next= 仅服务端配置，不会写入客户端分享 URI。"
             MSG[warn_sni_missing]="TLS=2 但未设置公网主机名；分享 URI 将省略 sni（跳过证书校验）。"
             MSG[label_generated_url]="生成的 URL："
             MSG[ok_config_updated]="配置已更新并重启服务"
@@ -569,8 +617,9 @@ set_language() {
             MSG[menu_11]="切换语言"
             MSG[menu_12]="安装指定版本"
             MSG[menu_13]="启动 Nowhere TUI"
+            MSG[menu_14]="升级 oh-nowhere 管理脚本"
             MSG[menu_0]="退出"
-            MSG[prompt_menu]="请输入选项 [0-13]: "
+            MSG[prompt_menu]="请输入选项 [0-14]: "
             MSG[ok_start_sent]="启动命令已发送"
             MSG[ok_stop_sent]="停止命令已发送"
             MSG[ok_restart_sent]="重启命令已发送"
@@ -617,12 +666,12 @@ set_language() {
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
             MSG[help_opt_keyfile]="      --keyfile <路径>   TLS=2 时的私钥路径"
             MSG[help_opt_socks]="      --socks <地址>    Portal 出站或 Vector 入站 SOCKS"
-            MSG[help_opt_up]="      --up <tcp|udp>    Vector 上行载体 (默认 udp)"
-            MSG[help_opt_down]="      --down <tcp|udp>  Vector 下行载体 (默认 udp)"
-            MSG[help_opt_pool]="      --pool <n>        Vector 预热 TLS 池 (tcp/tcp)"
-            MSG[help_opt_sni]="      --sni <名称>      Vector 证书名"
-            MSG[help_opt_pin]="      --pin <sha256>    Vector 证书固定"
-            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.6.0)"
+            MSG[help_opt_up]="      --up <tcp|udp>    上行载体（Vector 或 Portal next 上游；默认 udp）"
+            MSG[help_opt_down]="      --down <tcp|udp>  下行载体（Vector 或 Portal next 上游；默认 udp）"
+            MSG[help_opt_pool]="      --pool <n>        tcp/tcp 预热 TLS 池（Vector 或 Portal next 上游）"
+            MSG[help_opt_sni]="      --sni <名称>      证书名（Vector 或 Portal next 上游）"
+            MSG[help_opt_pin]="      --pin <sha256>    证书固定（Vector 或 Portal next 上游）"
+            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.7.0)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  脚本语言 (默认 zh)"
             MSG[prompt_type]="服务类型 (portal/vector) 或粘贴 nowhere:// [%s]: "
             MSG[prompt_type_hint]="输入 portal、vector，或粘贴 nowhere:// / vector:// / portal:// URL"
@@ -648,6 +697,16 @@ set_language() {
             MSG[err_socks_required]="Vector 需要入站 SOCKS 监听地址"
             MSG[err_portal_host_required]="Vector 需要 Portal 主机"
             MSG[info_launching_tui]="正在启动 Nowhere TUI（只读；Ctrl+C 退出）..."
+            MSG[info_upgrading_script]="正在升级 oh-nowhere 管理脚本..."
+            MSG[info_script_already_latest]="脚本已是最新版本"
+            MSG[info_script_restart_hint]="请重新运行脚本以使用新版本"
+            MSG[prompt_script_upgrade_confirm]="下载并替换当前脚本? [y/N]: "
+            MSG[label_script_path]="脚本路径: %s"
+            MSG[ok_script_upgraded]="脚本已升级（备份: %s）"
+            MSG[err_script_download]="下载最新脚本失败"
+            MSG[err_script_verify]="下载的脚本未通过语法检查"
+            MSG[err_script_install]="安装更新脚本失败"
+            MSG[help_opt_upgrade_script]="      --upgrade-script     从 GitHub 升级本 oh-nowhere 脚本"
             MSG[help_opt_help]="  -h, --help             显示帮助"
             ;;
     esac
@@ -933,6 +992,148 @@ encode_socks_endpoint() {
     fi
 }
 
+encode_next_endpoint() {
+    # Encode shared-key@host:port for Portal next= query values.
+    local next="$1"
+    if [[ "$next" != *@* ]]; then
+        printf '%s' "$(url_encode_component "$next")"
+        return
+    fi
+    local shared_key="${next%@*}"
+    local hostport="${next##*@}"
+    printf '%s@%s' "$(url_encode_component "$shared_key")" "$hostport"
+}
+
+portal_outbound_mode() {
+    local socks="$1"
+    local next="$2"
+    if [[ -n "$next" && "$next" != "none" ]]; then
+        echo "next"
+    elif [[ -n "$socks" && "$socks" != "none" ]]; then
+        echo "socks"
+    else
+        echo "none"
+    fi
+}
+
+validate_portal_outbound() {
+    local socks="$1"
+    local next="$2"
+    if [[ -n "$next" && "$next" != "none" && -n "$socks" && "$socks" != "none" ]]; then
+        log_error "$(t err_next_socks_mutex)"
+        return 1
+    fi
+    return 0
+}
+
+load_portal_outbound_from_url() {
+    local url="$1"
+    PORTAL_SOCKS=""
+    PORTAL_NEXT=""
+    PORTAL_UP="udp"
+    PORTAL_DOWN="udp"
+    PORTAL_POOL="5"
+    PORTAL_SNI=""
+    PORTAL_PIN=""
+
+    local raw
+    raw=$(get_query_param "$url" "socks")
+    [[ -n "$raw" ]] && PORTAL_SOCKS=$(url_decode_simple "$raw")
+    raw=$(get_query_param "$url" "next")
+    [[ -n "$raw" ]] && PORTAL_NEXT=$(url_decode_simple "$raw")
+    raw=$(get_query_param "$url" "up")
+    [[ -n "$raw" ]] && PORTAL_UP="$raw"
+    raw=$(get_query_param "$url" "down")
+    [[ -n "$raw" ]] && PORTAL_DOWN="$raw"
+    raw=$(get_query_param "$url" "pool")
+    [[ -n "$raw" ]] && PORTAL_POOL="$raw"
+    raw=$(get_query_param "$url" "sni")
+    [[ -n "$raw" ]] && PORTAL_SNI=$(url_decode_simple "$raw")
+    raw=$(get_query_param "$url" "pin")
+    [[ -n "$raw" ]] && PORTAL_PIN=$(url_decode_simple "$raw")
+}
+
+collect_portal_outbound_interactive() {
+    local socks="$1"
+    local next="$2"
+    local up="$3"
+    local down="$4"
+    local pool="$5"
+    local sni="$6"
+    local pin="$7"
+
+    local default_socks="${socks:-proxy.example:1080}"
+    local default_next="${next:-origin-key@origin.example:2077}"
+    local outbound_mode
+    outbound_mode=$(portal_outbound_mode "$socks" "$next")
+    local mode_input=""
+    read -rp "$(t prompt_outbound_mode "$outbound_mode")" mode_input
+    mode_input="${mode_input:-$outbound_mode}"
+
+    socks=""
+    next=""
+    up="${up:-udp}"
+    down="${down:-udp}"
+    pool="${pool:-5}"
+    sni="${sni:-}"
+    pin="${pin:-}"
+
+    case "$mode_input" in
+        socks)
+            read -rp "$(t prompt_socks_out "$default_socks")" socks_input
+            [[ -n "$socks_input" ]] && socks="$socks_input"
+            ;;
+        next)
+            read -rp "$(t prompt_next "$default_next")" next_input
+            [[ -n "$next_input" ]] && next="$next_input"
+            if [[ -z "$next" ]]; then
+                log_error "$(t err_next_required)"
+                return 1
+            fi
+
+            read -rp "$(t prompt_up "$up")" up_input
+            [[ -n "$up_input" ]] && up="$up_input"
+
+            read -rp "$(t prompt_down "$down")" down_input
+            [[ -n "$down_input" ]] && down="$down_input"
+
+            if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+                read -rp "$(t prompt_pool "$pool")" pool_input
+                [[ -n "$pool_input" ]] && pool="$pool_input"
+            fi
+
+            read -rp "$(t prompt_sni "$sni")" sni_input
+            if [[ "$sni_input" == "-" ]]; then
+                sni=""
+            elif [[ -n "$sni_input" ]]; then
+                sni="$sni_input"
+            fi
+
+            read -rp "$(t prompt_pin "$pin")" pin_input
+            if [[ "$pin_input" == "-" ]]; then
+                pin=""
+            elif [[ -n "$pin_input" ]]; then
+                pin="$pin_input"
+            fi
+            ;;
+        none|"")
+            ;;
+        *)
+            log_error "$(t err_invalid_type "$mode_input")"
+            return 1
+            ;;
+    esac
+
+    OUT_SOCKS="$socks"
+    OUT_NEXT="$next"
+    OUT_UP="$up"
+    OUT_DOWN="$down"
+    OUT_POOL="$pool"
+    OUT_SNI="$sni"
+    OUT_PIN="$pin"
+    return 0
+}
+
 detect_url_role() {
     local url="$1"
     case "$url" in
@@ -980,6 +1181,16 @@ build_portal_url() {
     local crt="$6"
     local keyfile="$7"
     local socks="${8:-}"
+    local next="${9:-}"
+    local up="${10:-}"
+    local down="${11:-}"
+    local pool="${12:-}"
+    local sni="${13:-}"
+    local pin="${14:-}"
+
+    if ! validate_portal_outbound "$socks" "$next"; then
+        return 1
+    fi
 
     local url="portal://${key}@:${port}?tls=${tls}&net=${net}"
     if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
@@ -990,6 +1201,24 @@ build_portal_url() {
     fi
     if [[ -n "$socks" && "$socks" != "none" ]]; then
         url="${url}&socks=$(encode_socks_endpoint "$socks")"
+    fi
+    if [[ -n "$next" && "$next" != "none" ]]; then
+        up="${up:-udp}"
+        down="${down:-udp}"
+        url="${url}&next=$(encode_next_endpoint "$next")"
+        url="${url}&up=${up}&down=${down}"
+        if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+            pool="${pool:-5}"
+            url="${url}&pool=${pool}"
+        elif [[ -n "$pool" ]]; then
+            url="${url}&pool=${pool}"
+        fi
+        if [[ -n "$sni" && "$sni" != "none" ]]; then
+            url="${url}&sni=${sni}"
+        fi
+        if [[ -n "$pin" && "$pin" != "none" ]]; then
+            url="${url}&pin=${pin}"
+        fi
     fi
     echo "$url"
 }
@@ -1546,7 +1775,7 @@ configure_nowhere() {
 
     local default_key default_port="2077" default_alpn="$DEFAULT_ALPN"
     local default_net="mix" default_tls="1"
-    local default_host="" default_socks="" default_up="udp" default_down="udp"
+    local default_host="" default_socks="" default_next="" default_up="udp" default_down="udp"
     local default_pool="5" default_sni="" default_pin=""
     default_key=$(generate_random_key)
     default_host=$(load_share_host)
@@ -1567,8 +1796,14 @@ configure_nowhere() {
         else
             default_net=$(get_query_param "$existing_url" "net"); default_net=${default_net:-mix}
             default_tls=$(get_query_param "$existing_url" "tls"); default_tls=${default_tls:-1}
-            default_socks=$(get_query_param "$existing_url" "socks")
-            [[ -n "$default_socks" ]] && default_socks=$(url_decode_simple "$default_socks")
+            load_portal_outbound_from_url "$existing_url"
+            default_socks="$PORTAL_SOCKS"
+            default_next="$PORTAL_NEXT"
+            default_up="$PORTAL_UP"
+            default_down="$PORTAL_DOWN"
+            default_pool="$PORTAL_POOL"
+            default_sni="$PORTAL_SNI"
+            default_pin="$PORTAL_PIN"
         fi
         local existing_alpn
         existing_alpn=$(get_query_param "$existing_url" "alpn")
@@ -1584,6 +1819,7 @@ configure_nowhere() {
     [[ -n "$ARG_TLS" ]] && default_tls="$ARG_TLS"
     [[ -n "$ARG_HOST" ]] && default_host="$ARG_HOST"
     [[ -n "$ARG_SOCKS" ]] && default_socks="$ARG_SOCKS"
+    [[ -n "$ARG_NEXT" ]] && default_next="$ARG_NEXT"
     [[ -n "$ARG_UP" ]] && default_up="$ARG_UP"
     [[ -n "$ARG_DOWN" ]] && default_down="$ARG_DOWN"
     [[ -n "$ARG_POOL" ]] && default_pool="$ARG_POOL"
@@ -1595,7 +1831,7 @@ configure_nowhere() {
 
     local key="$default_key" port="$default_port" alpn="$default_alpn"
     local net="$default_net" tls="$default_tls" host="$default_host" name="$default_name"
-    local socks="$default_socks" up="$default_up" down="$default_down"
+    local socks="$default_socks" next="$default_next" up="$default_up" down="$default_down"
     local pool="$default_pool" sni="$default_sni" pin="$default_pin"
 
     if [[ "$skip_prompts" == true ]]; then
@@ -1607,35 +1843,62 @@ configure_nowhere() {
         host="${ARG_HOST:-$default_host}"
         name="${ARG_NAME:-$default_name}"
         socks="${ARG_SOCKS:-$default_socks}"
+        next="${ARG_NEXT:-$default_next}"
         up="${ARG_UP:-$default_up}"
         down="${ARG_DOWN:-$default_down}"
         pool="${ARG_POOL:-$default_pool}"
         sni="${ARG_SNI:-$default_sni}"
         pin="${ARG_PIN:-$default_pin}"
         if [[ "$imported" == true && -n "$IMPORTED_URL" && -z "$ARG_KEY" ]]; then
-            # Fully specified via --url; optionally rebuild if overrides present.
-            if [[ -z "$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_POOL$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT" ]]; then
-                echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
-                save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
-                return
+            if [[ "$ROLE" == "vector" ]]; then
+                if [[ -z "$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_POOL$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT" ]]; then
+                    echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
+                    save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
+                    return
+                fi
+                parse_url_authority "$IMPORTED_URL"
+                key="${ARG_KEY:-$PARSE_KEY}"
+                host="${ARG_HOST:-$PARSE_HOST}"
+                port="${ARG_PORT:-$PARSE_PORT}"
+                socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "socks")")}"
+                socks="${socks:-$DEFAULT_SOCKS_IN}"
+                up="${ARG_UP:-$(get_query_param "$IMPORTED_URL" "up")}"
+                up="${up:-udp}"
+                down="${ARG_DOWN:-$(get_query_param "$IMPORTED_URL" "down")}"
+                down="${down:-udp}"
+                pool="${ARG_POOL:-$(get_query_param "$IMPORTED_URL" "pool")}"
+                sni="${ARG_SNI:-$(get_query_param "$IMPORTED_URL" "sni")}"
+                pin="${ARG_PIN:-$(get_query_param "$IMPORTED_URL" "pin")}"
+                local ia
+                ia=$(get_query_param "$IMPORTED_URL" "alpn")
+                [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
+                [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
+            else
+                if [[ -z "$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_POOL$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS" ]]; then
+                    echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
+                    save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
+                    return
+                fi
+                parse_url_authority "$IMPORTED_URL"
+                load_portal_outbound_from_url "$IMPORTED_URL"
+                key="${ARG_KEY:-$PARSE_KEY}"
+                port="${ARG_PORT:-$PARSE_PORT}"
+                net="${ARG_NET:-$(get_query_param "$IMPORTED_URL" "net")}"
+                net="${net:-mix}"
+                tls="${ARG_TLS:-$(get_query_param "$IMPORTED_URL" "tls")}"
+                tls="${tls:-1}"
+                socks="${ARG_SOCKS:-$PORTAL_SOCKS}"
+                next="${ARG_NEXT:-$PORTAL_NEXT}"
+                up="${ARG_UP:-$PORTAL_UP}"
+                down="${ARG_DOWN:-$PORTAL_DOWN}"
+                pool="${ARG_POOL:-$PORTAL_POOL}"
+                sni="${ARG_SNI:-$PORTAL_SNI}"
+                pin="${ARG_PIN:-$PORTAL_PIN}"
+                local ia
+                ia=$(get_query_param "$IMPORTED_URL" "alpn")
+                [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
+                [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
             fi
-            parse_url_authority "$IMPORTED_URL"
-            key="${ARG_KEY:-$PARSE_KEY}"
-            host="${ARG_HOST:-$PARSE_HOST}"
-            port="${ARG_PORT:-$PARSE_PORT}"
-            socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "socks")")}"
-            socks="${socks:-$DEFAULT_SOCKS_IN}"
-            up="${ARG_UP:-$(get_query_param "$IMPORTED_URL" "up")}"
-            up="${up:-udp}"
-            down="${ARG_DOWN:-$(get_query_param "$IMPORTED_URL" "down")}"
-            down="${down:-udp}"
-            pool="${ARG_POOL:-$(get_query_param "$IMPORTED_URL" "pool")}"
-            sni="${ARG_SNI:-$(get_query_param "$IMPORTED_URL" "sni")}"
-            pin="${ARG_PIN:-$(get_query_param "$IMPORTED_URL" "pin")}"
-            local ia
-            ia=$(get_query_param "$IMPORTED_URL" "alpn")
-            [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
-            [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
         fi
     fi
 
@@ -1743,18 +2006,16 @@ configure_nowhere() {
                 name="$name_input"
             fi
 
-            local socks_enable="n"
-            if [[ -n "$socks" && "$socks" != "none" ]]; then
-                socks_enable="Y"
+            if ! collect_portal_outbound_interactive "$socks" "$next" "$up" "$down" "$pool" "$sni" "$pin"; then
+                return 1
             fi
-            read -rp "$(t prompt_socks_out_enable "$socks_enable")" socks_en_input
-            socks_en_input="${socks_en_input:-$socks_enable}"
-            if [[ "$socks_en_input" =~ ^[Yy]$ ]]; then
-                read -rp "$(t prompt_socks_out "${socks:-proxy.example:1080}")" socks_input
-                [[ -n "$socks_input" ]] && socks="$socks_input"
-            else
-                socks=""
-            fi
+            socks="$OUT_SOCKS"
+            next="$OUT_NEXT"
+            up="$OUT_UP"
+            down="$OUT_DOWN"
+            pool="$OUT_POOL"
+            sni="$OUT_SNI"
+            pin="$OUT_PIN"
         fi
 
         local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
@@ -1773,7 +2034,7 @@ configure_nowhere() {
             fi
         fi
 
-        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks")
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$pool" "$sni" "$pin") || return 1
     fi
 
     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${url}${NC}\n"
@@ -1888,6 +2149,35 @@ auto_install_nowhere() {
             fi
         else
             host="${ARG_HOST:-}"
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_POOL$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_NET$ARG_TLS" ]]; then
+                load_portal_outbound_from_url "$url"
+                local key="${ARG_KEY:-$PARSE_KEY}"
+                local port="${ARG_PORT:-$PARSE_PORT}"
+                local net="${ARG_NET:-$(get_query_param "$url" "net")}"
+                net="${net:-mix}"
+                local tls="${ARG_TLS:-$(get_query_param "$url" "tls")}"
+                tls="${tls:-1}"
+                local socks="${ARG_SOCKS:-$PORTAL_SOCKS}"
+                local next="${ARG_NEXT:-$PORTAL_NEXT}"
+                local up="${ARG_UP:-$PORTAL_UP}"
+                local down="${ARG_DOWN:-$PORTAL_DOWN}"
+                local pool="${ARG_POOL:-$PORTAL_POOL}"
+                local sni="${ARG_SNI:-$PORTAL_SNI}"
+                local pin="${ARG_PIN:-$PORTAL_PIN}"
+                local alpn="$DEFAULT_ALPN"
+                local ia
+                ia=$(get_query_param "$url" "alpn")
+                [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
+                [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
+                local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+                if [[ "$tls" == "2" ]]; then
+                    crt="${ARG_CERT:-$(get_query_param "$url" "crt")}"
+                    crt="${crt:-/etc/nowhere/cert.pem}"
+                    keyfile="${ARG_KEYFILE:-$(get_query_param "$url" "key")}"
+                    keyfile="${keyfile:-/etc/nowhere/key.pem}"
+                fi
+                url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$pool" "$sni" "$pin") || return 1
+            fi
         fi
         echo "$url" > "$URL_FILE"
         save_share_host "$host"
@@ -1921,7 +2211,7 @@ auto_install_nowhere() {
     log_info "$(t info_gen_config)"
     mkdir -p "$CONFIG_DIR"
 
-    local key port alpn net tls host name url socks up down pool sni pin
+    local key port alpn net tls host name url socks next up down pool sni pin
     port=${ARG_PORT:-2077}
     alpn=${ARG_ALPN:-$DEFAULT_ALPN}
     net=${ARG_NET:-mix}
@@ -1929,6 +2219,7 @@ auto_install_nowhere() {
     host=${ARG_HOST:-}
     name=$(load_node_name)
     socks=${ARG_SOCKS:-}
+    next=${ARG_NEXT:-}
     up=${ARG_UP:-udp}
     down=${ARG_DOWN:-udp}
     pool=${ARG_POOL:-5}
@@ -2015,13 +2306,18 @@ auto_install_nowhere() {
                 name="$name_input"
             fi
 
-            if [[ -z "$socks" ]]; then
-                read -rp "$(t prompt_socks_out_enable "n")" socks_en_input
-                if [[ "$socks_en_input" =~ ^[Yy]$ ]]; then
-                    read -rp "$(t prompt_socks_out "proxy.example:1080")" socks_input
-                    [[ -n "$socks_input" ]] && socks="$socks_input"
-                fi
+            if ! collect_portal_outbound_interactive "$socks" "$next" "$up" "$down" "$pool" "$sni" "$pin"; then
+                return 1
             fi
+            socks="$OUT_SOCKS"
+            next="$OUT_NEXT"
+            up="$OUT_UP"
+            down="$OUT_DOWN"
+            pool="$OUT_POOL"
+            sni="$OUT_SNI"
+            pin="$OUT_PIN"
+        elif [[ -n "$ARG_NEXT" ]]; then
+            next="$ARG_NEXT"
         fi
 
         local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
@@ -2036,7 +2332,7 @@ auto_install_nowhere() {
             fi
         fi
 
-        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks")
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$pool" "$sni" "$pin") || return 1
     fi
 
     echo "$url" > "$URL_FILE"
@@ -2091,6 +2387,10 @@ show_share_uri() {
     net_mode=$(get_query_param "$server_url" "net")
     net_mode=${net_mode:-mix}
     alpn_raw=$(get_query_param "$server_url" "alpn")
+
+    if [[ -n "$(get_query_param "$server_url" "next")" ]]; then
+        log_warn "$(t warn_share_chain)"
+    fi
 
     share_host=$(load_share_host)
     if [[ -z "$share_host" ]]; then
@@ -2235,16 +2535,20 @@ show_status() {
     echo -e "$(t label_system "${GREEN}${OS_ID}" "${OS_VERSION_ID}${NC}")"
     echo -e "$(t label_arch_libc "${GREEN}${ARCH}" "${LIBC}${NC}")"
     if [[ -f "$URL_FILE" ]]; then
-        local run_url role socks_val
+        local run_url role socks_val next_val
         run_url=$(tr -d '\n' < "$URL_FILE")
         role=$(detect_url_role "$run_url")
         role="${role:-unknown}"
         socks_val=$(get_query_param "$run_url" "socks")
+        next_val=$(get_query_param "$run_url" "next")
         echo -e "$(t label_role "${GREEN}${role}${NC}")"
         echo -e "$(t label_config_file "${GREEN}${URL_FILE}${NC}")"
         echo -e "$(t label_run_url_status "${GREEN}${run_url}${NC}")"
         if [[ -n "$socks_val" ]]; then
             echo -e "$(t label_socks "${GREEN}$(url_decode_simple "$socks_val")${NC}")"
+        fi
+        if [[ -n "$next_val" ]]; then
+            echo -e "$(t label_next "${GREEN}$(url_decode_simple "$next_val")${NC}")"
         fi
     else
         echo -e "$(t label_config_file "${YELLOW}$(t not_configured)${NC}")"
@@ -2262,6 +2566,78 @@ launch_tui() {
     log_info "$(t info_launching_tui)"
     # TUI is read-only and does not own service lifecycle.
     nowhere tui || nowhere
+}
+
+get_running_script_path() {
+    local src="${BASH_SOURCE[0]}"
+    while [[ -L "$src" ]]; do
+        local link_dir
+        link_dir=$(cd -P "$(dirname "$src")" && pwd)
+        src=$(readlink "$src")
+        [[ "$src" != /* ]] && src="$link_dir/$src"
+    done
+    local dir
+    dir=$(cd -P "$(dirname "$src")" && pwd)
+    echo "${dir}/$(basename "$src")"
+}
+
+upgrade_oh_nowhere_script() {
+    local script_path tmp_new backup_path
+    script_path=$(get_running_script_path)
+
+    log_info "$(t info_upgrading_script)"
+    echo -e "$(t label_script_path "${CYAN}${script_path}${NC}")"
+
+    tmp_new=$(mktemp /tmp/oh-nowhere.XXXXXX.sh) || {
+        log_error "$(t err_script_download)"
+        return 1
+    }
+
+    if ! curl -fsSL --connect-timeout 15 --max-time 60 "$SCRIPT_RAW_URL" -o "$tmp_new"; then
+        rm -f "$tmp_new"
+        log_error "$(t err_script_download)"
+        return 1
+    fi
+
+    if ! bash -n "$tmp_new"; then
+        rm -f "$tmp_new"
+        log_error "$(t err_script_verify)"
+        return 1
+    fi
+
+    if cmp -s "$script_path" "$tmp_new" 2>/dev/null; then
+        rm -f "$tmp_new"
+        log_info "$(t info_script_already_latest)"
+        return 0
+    fi
+
+    if [[ "$AUTO_MODE" != "upgrade-script" ]]; then
+        local confirm=""
+        read -rp "$(t prompt_script_upgrade_confirm)" confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            rm -f "$tmp_new"
+            log_info "$(t info_cancelled)"
+            return 0
+        fi
+    fi
+
+    backup_path="${script_path}.bak.$(date +%Y%m%d_%H%M%S)"
+    if ! cp "$script_path" "$backup_path"; then
+        rm -f "$tmp_new"
+        log_error "$(t err_script_install)"
+        return 1
+    fi
+
+    if ! install -m 755 "$tmp_new" "$script_path"; then
+        rm -f "$tmp_new"
+        log_error "$(t err_script_install)"
+        return 1
+    fi
+    rm -f "$tmp_new"
+
+    log_success "$(t ok_script_upgraded "$backup_path")"
+    log_info "$(t info_script_restart_hint)"
+    return 0
 }
 
 # ==================== Interactive menu ====================
@@ -2291,6 +2667,7 @@ show_menu() {
     echo -e "  ${YELLOW}11)${NC} $(t menu_11)"
     echo -e "  ${YELLOW}12)${NC} $(t menu_12)"
     echo -e "  ${YELLOW}13)${NC} $(t menu_13)"
+    echo -e "  ${YELLOW}14)${NC} $(t menu_14)"
     echo -e "  ${YELLOW}0)${NC} $(t menu_0)"
     echo -e "${GREEN}========================================${NC}"
 }
@@ -2318,6 +2695,7 @@ run_menu() {
             11) select_language ;;
             12) install_specific_version ;;
             13) launch_tui ;;
+            14) upgrade_oh_nowhere_script ;;
             0) log_info "$(t info_exit)"; exit 0 ;;
             *) log_error "$(t err_invalid_choice)" ;;
         esac
@@ -2344,6 +2722,7 @@ $(t help_opt_config)
 $(t help_opt_status)
 $(t help_opt_share)
 $(t help_opt_tui)
+$(t help_opt_upgrade_script)
 $(t help_opt_uninstall)
 $(t help_opt_type)
 $(t help_opt_url)
@@ -2357,6 +2736,7 @@ $(t help_opt_tls)
 $(t help_opt_cert)
 $(t help_opt_keyfile)
 $(t help_opt_socks)
+$(t help_opt_next)
 $(t help_opt_up)
 $(t help_opt_down)
 $(t help_opt_pool)
@@ -2372,10 +2752,12 @@ $(t help_examples)
   bash oh-nowhere.sh --install --key mysecret --port 2088
   bash oh-nowhere.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
   bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --socks 127.0.0.1:1080
+  bash oh-nowhere.sh --install --type portal --key relay-key --next 'origin-key@origin.example:2077' --up udp --down udp
   bash oh-nowhere.sh --config --url 'nowhere://mysecret@relay.example:2077?up=tcp&down=tcp'
   bash oh-nowhere.sh -l en --status
   bash oh-nowhere.sh --tui
-  bash oh-nowhere.sh --version v1.6.0 --install --key mysecret
+  bash oh-nowhere.sh --upgrade-script --lang en
+  bash oh-nowhere.sh --version v1.7.0 --install --key mysecret
 EOF
 }
 
@@ -2389,6 +2771,7 @@ parse_args() {
             -s|--status)        AUTO_MODE="status" ;;
             -q|--share)         AUTO_MODE="share" ;;
             --tui)              AUTO_MODE="tui" ;;
+            --upgrade-script)   AUTO_MODE="upgrade-script" ;;
             --uninstall)        AUTO_MODE="uninstall" ;;
             --type)             ARG_TYPE="$2"; shift ;;
             --url)              ARG_URL="$2"; shift ;;
@@ -2398,6 +2781,7 @@ parse_args() {
             --host)             ARG_HOST="$2"; shift ;;
             --name)             ARG_NAME="$2"; shift ;;
             --socks)            ARG_SOCKS="$2"; shift ;;
+            --next)             ARG_NEXT="$2"; shift ;;
             --up)               ARG_UP="$2"; shift ;;
             --down)             ARG_DOWN="$2"; shift ;;
             --pool)             ARG_POOL="$2"; shift ;;
@@ -2461,6 +2845,7 @@ main() {
         status)     show_status ;;
         share)      show_share_uri ;;
         tui)        launch_tui ;;
+        upgrade-script) upgrade_oh_nowhere_script ;;
         uninstall)  uninstall_nowhere ;;
         menu)       run_menu ;;
     esac

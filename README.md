@@ -1,3 +1,9 @@
+<div>
+
+[**English**](README.md) | [**简体中文**](README_zh_CN.md) | [**Русский**](README_ru.md)
+
+</div>
+
 # oh-nowhere
 
 A one-click installation, upgrade, and management script for [Nowhere](https://github.com/NodePassProject/Nowhere).
@@ -18,7 +24,7 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 * x86_64 and aarch64 architecture detection
 * GNU libc and musl build selection
 * Portal or Vector role selection
-* Portal outbound SOCKS5 and Vector inbound SOCKS5
+* Portal outbound SOCKS5, native Portal chaining (`next=`), and Vector inbound SOCKS5
 * Import `nowhere://` share URIs (auto-convert to `vector://`)
 * Launch Nowhere read-only TUI (`nowhere tui`)
 * Service status display
@@ -26,9 +32,9 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 * Optional QR code support
 * English, Chinese, and Russian script UI
 
-## Nowhere 1.5 / 1.6 Notes
+## Nowhere 1.5 / 1.6 / 1.7 Notes
 
-Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. Nowhere **1.6** adds a read-only TUI and structured local telemetry (Linux-only). Wire protocol is unchanged from 1.5.x.
+Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. Nowhere **1.6** adds a read-only TUI and structured local telemetry (Linux-only). Wire protocol is unchanged from 1.5.x. Nowhere **1.7** adds native Portal-to-Portal chaining (`next=`), upstream RTT in EVENT logs / telemetry / TUI, and a seven-hop forwarding budget.
 
 This script is adapted for those releases:
 
@@ -39,7 +45,9 @@ This script is adapted for those releases:
 * Pasting or importing `nowhere://` automatically converts to `vector://` (adds inbound `socks=` if missing)
 * On upgrade, any stored `spec=` is stripped from `/etc/nowhere/url.conf`
 * Stored `nowhere://` run URLs are migrated to `vector://`
-* Menu item 13 / `--tui` launches the Nowhere dashboard (observational only)
+* Menu item 13 / `--tui` launches the Nowhere dashboard (observational only; 1.7 shows upstream RTT)
+* Portal relay nodes can use native chaining via `next=` (mutually exclusive with outbound `socks=`)
+* Every Portal in a native chain must support Nowhere 1.7.0 HOPS semantics
 * Portal and clients must be upgraded together for 1.5+ wire
 
 ## Supported Systems
@@ -86,6 +94,7 @@ Then select the action from the menu:
 11. Change language
 12. Install specific version
 13. Launch Nowhere TUI
+14. Upgrade oh-nowhere script
 0. Exit
 ```
 
@@ -140,6 +149,26 @@ sudo ./oh-nowhere.sh \
   --lang en
 ```
 
+Install a chained Portal relay (Nowhere 1.7+):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key relay-key \
+  --port 2077 \
+  --next 'origin-key@origin.example:2077' \
+  --up udp \
+  --down udp \
+  --lang en
+```
+
+This generates a Portal URL similar to:
+
+```text
+portal://relay-key@:2077?tls=1&net=mix&next=origin-key@origin.example:2077&up=udp&down=udp
+```
+
 ## Install a Specific Version
 
 Install a specific upstream release from the command line:
@@ -147,7 +176,7 @@ Install a specific upstream release from the command line:
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.6.0 \
+  --version v1.7.0 \
   --key change-me \
   --port 2077 \
   --lang en
@@ -156,7 +185,7 @@ sudo ./oh-nowhere.sh \
 Upgrade or downgrade to a specific version:
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.6.0 --lang en
+sudo ./oh-nowhere.sh --upgrade --version v1.7.0 --lang en
 ```
 
 You can also select a version interactively by choosing menu item `12. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
@@ -165,12 +194,24 @@ You can also select a version interactively by choosing menu item `12. Install s
 
 Configure menu item 3 asks for `portal` or `vector`, or accepts a pasted `nowhere://` / `vector://` / `portal://` URL.
 
-| Role | Run URL | SOCKS |
-| ---- | ------- | ----- |
-| `portal` | `portal://key@:port?...` | Optional **outbound** proxy (`socks=host:port`) |
+| Role | Run URL | Outbound |
+| ---- | ------- | -------- |
+| `portal` | `portal://key@:port?...` | Optional **outbound SOCKS** (`socks=host:port`) **or** native chain (`next=key@host:port` with `up`/`down`/`pool`/`sni`/`pin`); mutually exclusive |
 | `vector` | `vector://key@portal-host:port?...` | Required **inbound** listener (default `127.0.0.1:1080`) |
 
 Only one role is active at a time (single `url.conf` / `nowhere` service). Reconfigure to switch.
+
+### Portal native chaining (1.7+)
+
+A relay Portal forwards flows directly to another Portal without loopback SOCKS5:
+
+```text
+portal://relay-key@:2077?next=origin-key@origin.example:2077&up=udp&down=udp
+```
+
+Interactive configure asks for outbound mode: `none`, `socks`, or `next`. When using `next`, the script also prompts for upstream carriers and optional `sni` / `pin`.
+
+Import an existing chained Portal URL via `--url` or paste `portal://...?next=...` in the configure menu; reconfigure preserves `next=` and upstream parameters.
 
 ## TLS Modes (Portal)
 
@@ -238,7 +279,8 @@ nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example#
 
 * Host prefers `/etc/nowhere/host.conf` (or `--host`); otherwise the detected public IP
 * Node name is appended as a percent-encoded `#fragment`; set it with `--name` (default `Nowhere-<country>-<first IP octet>`, stored in `/etc/nowhere/name.conf`)
-* Portal-only parameters (`tls`, `crt`, `key`, `net`, `dial`, `rate`, `etar`, `log`, outbound `socks`) are not copied into the share URI
+* Portal-only parameters (`tls`, `crt`, `key`, `net`, `dial`, `rate`, `etar`, `log`, outbound `socks`, **`next`**) are not copied into the share URI
+* Chained Portal: clients connect to this relay's entry point; `next=` remains server-side only
 * Custom `alpn` is copied when it differs from `now/1`
 * On a Vector instance, `--share` prints the current `vector://` run URL instead
 
@@ -252,7 +294,7 @@ Menu item 13 / `--tui` runs:
 nowhere tui
 ```
 
-The dashboard discovers local Portal/Vector instances and shows live metrics. It is read-only and does not start, stop, or reconfigure the service.
+The dashboard discovers local Portal/Vector instances and shows live metrics, including upstream RTT (`ping_ms`) in Nowhere 1.7+. It is read-only and does not start, stop, or reconfigure the service.
 
 ## CLI Usage
 
@@ -270,6 +312,7 @@ sudo ./oh-nowhere.sh [options]
 | `-s`, `--status`            | Show service status                              |
 | `-q`, `--share`             | Show client share URI                            |
 | `--tui`                     | Launch Nowhere TUI                               |
+| `--upgrade-script`          | Upgrade this oh-nowhere script from GitHub       |
 | `--uninstall`               | Uninstall Nowhere                                |
 | `--type <portal\|vector>`   | Service role, default `portal`                   |
 | `--url <uri>`               | Import `portal://`, `vector://`, or `nowhere://` |
@@ -283,11 +326,12 @@ sudo ./oh-nowhere.sh [options]
 | `--cert <path>`             | Certificate path when `tls=2`                    |
 | `--keyfile <path>`          | Private key path when `tls=2`                    |
 | `--socks <addr>`            | Portal outbound or Vector inbound SOCKS          |
-| `--up <tcp\|udp>`           | Vector uplink carrier, default `udp`             |
-| `--down <tcp\|udp>`         | Vector downlink carrier, default `udp`           |
-| `--pool <n>`                | Vector warm TLS pool (`tcp/tcp`)                 |
-| `--sni <name>`              | Vector certificate name                          |
-| `--pin <sha256>`            | Vector certificate pin                           |
+| `--next <key@host:port>`    | Portal native upstream (mutually exclusive with `--socks`) |
+| `--up <tcp\|udp>`           | Uplink carrier (Vector or Portal `next` upstream; default `udp`) |
+| `--down <tcp\|udp>`         | Downlink carrier (Vector or Portal `next` upstream; default `udp`) |
+| `--pool <n>`                | Warm TLS pool for `tcp/tcp` (Vector or Portal `next` upstream) |
+| `--sni <name>`              | Certificate name (Vector or Portal `next` upstream) |
+| `--pin <sha256>`            | Certificate pin (Vector or Portal `next` upstream) |
 | `-v`, `--version <ver>`     | Install a specific release version               |
 | `-l`, `--lang <en\|zh\|ru>` | Set script language, default `zh`                |
 | `-h`, `--help`              | Show help                                        |
@@ -311,7 +355,7 @@ sudo ./oh-nowhere.sh --upgrade --lang en
 Install a specific Nowhere version:
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.6.0 --lang en
+sudo ./oh-nowhere.sh --install --version v1.7.0 --lang en
 ```
 
 Reconfigure the service:
@@ -330,6 +374,12 @@ Launch TUI:
 
 ```bash
 sudo ./oh-nowhere.sh --tui --lang en
+```
+
+Upgrade the management script:
+
+```bash
+sudo ./oh-nowhere.sh --upgrade-script --lang en
 ```
 
 Uninstall Nowhere:
