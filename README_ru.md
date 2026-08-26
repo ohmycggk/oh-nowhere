@@ -32,9 +32,9 @@
 * Опциональная поддержка QR-кода
 * Интерфейс скрипта на английском, китайском и русском
 
-## Nowhere 1.5 / 1.6 / 1.7
+## Nowhere 1.5 / 1.6 / 1.7 / 1.8
 
-Nowhere **1.5** вводит новый wire-протокол и удаляет параметр Portal `spec`. Nowhere **1.6** добавляет read-only TUI и структурированную локальную телеметрию (только Linux). Wire-протокол не менялся с 1.5.x. Nowhere **1.7** добавляет native chaining Portal-to-Portal (`next=`), upstream RTT в EVENT / telemetry / TUI и бюджет из семи переходов.
+Nowhere **1.5** вводит новый wire-протокол и удаляет параметр Portal `spec`. Nowhere **1.6** добавляет read-only TUI и структурированную локальную телеметрию (только Linux). Wire-протокол не менялся с 1.5.x. Nowhere **1.7** добавляет native chaining Portal-to-Portal (`next=`), upstream RTT в EVENT / telemetry / TUI и бюджет из семи переходов. Nowhere **1.8** заменяет тёплый TLS-пул `tcp/tcp` (`pool=<n>`) на TLS Mux (`mux=0|1`); параметр `pool` удалён.
 
 Скрипт адаптирован под эти релизы:
 
@@ -44,11 +44,13 @@ Nowhere **1.5** вводит новый wire-протокол и удаляет 
 * `vector://` запускает native SOCKS5-клиент; скрипт генерирует и управляет им
 * Вставка или импорт `nowhere://` автоматически конвертируется в `vector://` (добавляет `socks=` при отсутствии)
 * При обновлении устаревший `spec=` удаляется из `/etc/nowhere/url.conf`
+* При обновлении устаревший `pool=` удаляется; для `tcp/tcp` при отсутствии добавляется `mux=1`
 * Сохранённые run URL `nowhere://` мигрируют в `vector://`
 * Пункт меню 13 / `--tui` запускает read-only панель (1.7 показывает upstream RTT)
 * Relay Portal может использовать native chaining через `next=` (несовместимо с исходящим `socks=`)
 * Каждый Portal в native chain должен поддерживать семантику HOPS Nowhere 1.7.0
 * Для wire 1.5+ Portal и клиенты нужно обновлять вместе
+* Vector и upstream Portal `next` используют `mux=0|1` вместо `pool=` (1.8+)
 
 ## Поддерживаемые системы
 
@@ -144,7 +146,7 @@ sudo ./oh-nowhere.sh \
 ```bash
 sudo ./oh-nowhere.sh \
   --config \
-  --url 'nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example' \
+  --url 'nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
   --socks 127.0.0.1:1080 \
   --lang ru
 ```
@@ -176,7 +178,7 @@ portal://relay-key@:2077?tls=1&net=mix&next=origin-key@origin.example:2077&up=ud
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.7.0 \
+  --version v1.8.2 \
   --key change-me \
   --port 2077 \
   --lang ru
@@ -185,7 +187,7 @@ sudo ./oh-nowhere.sh \
 Обновление или откат:
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.7.0 --lang ru
+sudo ./oh-nowhere.sh --upgrade --version v1.8.2 --lang ru
 ```
 
 Также можно выбрать пункт меню `12. Установить указанную версию`: скрипт загрузит список GitHub releases. `0` — последняя версия, иначе номер из списка.
@@ -196,7 +198,7 @@ sudo ./oh-nowhere.sh --upgrade --version v1.7.0 --lang ru
 
 | Роль | Run URL | Исходящий трафик |
 | ---- | ------- | ---------------- |
-| `portal` | `portal://key@:port?...` | Опциональный **исходящий SOCKS** (`socks=host:port`) **или** native chain (`next=key@host:port` с `up`/`down`/`pool`/`sni`/`pin`); взаимоисключительно |
+| `portal` | `portal://key@:port?...` | Опциональный **исходящий SOCKS** (`socks=host:port`) **или** native chain (`next=key@host:port` с `up`/`down`/`mux`/`sni`/`pin`); взаимоисключительно |
 | `vector` | `vector://key@portal-host:port?...` | Обязательный **входящий** listener (по умолчанию `127.0.0.1:1080`) |
 
 Одновременно активна только одна роль (один `url.conf` / служба `nowhere`). Для смены — перенастройка.
@@ -209,7 +211,7 @@ Relay Portal пересылает потоки напрямую на следу�
 portal://relay-key@:2077?next=origin-key@origin.example:2077&up=udp&down=udp
 ```
 
-Интерактивная настройка спрашивает режим исходящего трафика: `none`, `socks` или `next`. При `next` также запрашиваются upstream-носители и опциональные `sni` / `pin`.
+Интерактивная настройка спрашивает режим исходящего трафика: `none`, `socks` или `next`. При `next` также запрашиваются upstream-носители и опциональные `mux` / `sni` / `pin`.
 
 Импортируйте chained Portal URL через `--url` или вставьте `portal://...?next=...` в меню настройки; перенастройка сохраняет `next=` и upstream-параметры.
 
@@ -255,7 +257,7 @@ sudo ./oh-nowhere.sh \
 | Режим | Описание              | Носители share URI       |
 | ----- | --------------------- | ------------------------ |
 | `mix` | Смешанный TCP/UDP     | `up=udp&down=udp`        |
-| `tcp` | Только TCP            | `up=tcp&down=tcp&pool=5` |
+| `tcp` | Только TCP            | `up=tcp&down=tcp&mux=1` |
 | `udp` | Только UDP            | `up=udp&down=udp`        |
 
 По умолчанию: `mix`.
@@ -268,7 +270,7 @@ sudo ./oh-nowhere.sh \
 
 ```text
 nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
-nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example#Nowhere-DE-45
+nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
 * Хост берётся из `/etc/nowhere/host.conf` (или `--host`), иначе — определённый публичный IP
@@ -323,7 +325,7 @@ sudo ./oh-nowhere.sh [опции]
 | `--next <key@host:port>`    | Native upstream Portal (несовместимо с `--socks`) |
 | `--up <tcp\|udp>`           | Uplink (Vector или upstream Portal `next`; по умолчанию `udp`) |
 | `--down <tcp\|udp>`         | Downlink (Vector или upstream Portal `next`; по умолчанию `udp`) |
-| `--pool <n>`                | Пул тёплых TLS для `tcp/tcp` (Vector или Portal `next`) |
+| `--mux <0\|1>`              | TLS Mux для `tcp/tcp` (Vector или Portal `next`, по умолчанию `0`) |
 | `--sni <имя>`               | Имя сертификата (Vector или Portal `next`) |
 | `--pin <sha256>`            | Pin сертификата (Vector или Portal `next`) |
 | `-v`, `--version <ver>`     | Установить указанный release |
@@ -331,6 +333,7 @@ sudo ./oh-nowhere.sh [опции]
 | `-h`, `--help`              | Справка |
 
 `--spec` принимается, но игнорируется с предупреждением (удалён в Nowhere 1.5).
+`--pool` принимается, но игнорируется с предупреждением (удалён в Nowhere 1.8; используйте `--mux`).
 
 ## Частые команды
 
@@ -349,7 +352,7 @@ sudo ./oh-nowhere.sh --upgrade --lang ru
 Установка указанной версии:
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.7.0 --lang ru
+sudo ./oh-nowhere.sh --install --version v1.8.2 --lang ru
 ```
 
 Перенастройка:

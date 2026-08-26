@@ -32,9 +32,9 @@
 * 可选二维码支持
 * 脚本界面支持中文、英文、俄文
 
-## Nowhere 1.5 / 1.6 / 1.7 说明
+## Nowhere 1.5 / 1.6 / 1.7 / 1.8 说明
 
-Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere **1.6** 新增只读 TUI 与结构化本地遥测（仅 Linux）。线协议与 1.5.x 相同。Nowhere **1.7** 新增 Portal 原生链式转发（`next=`）、EVENT / 遥测 / TUI 中的上游 RTT，以及七跳转发预算。
+Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere **1.6** 新增只读 TUI 与结构化本地遥测（仅 Linux）。线协议与 1.5.x 相同。Nowhere **1.7** 新增 Portal 原生链式转发（`next=`）、EVENT / 遥测 / TUI 中的上游 RTT，以及七跳转发预算。Nowhere **1.8** 以 TLS Mux（`mux=0|1`）取代原先 `tcp/tcp` 场景下的 `pool=<n>` 预热连接池，`pool` 参数已移除。
 
 本脚本已适配上述版本：
 
@@ -44,11 +44,13 @@ Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere *
 * `vector://` 运行原生 SOCKS5 客户端；本脚本可生成并管理
 * 粘贴或导入 `nowhere://` 时自动转为 `vector://`（缺 `socks=` 时自动补全）
 * 升级时会从 `/etc/nowhere/url.conf` 剥离已废弃的 `spec=`
+* 升级时会剥离已废弃的 `pool=`，并在 `tcp/tcp` 且缺少 `mux=` 时写入 `mux=1`
 * 已存储的 `nowhere://` 运行 URL 会迁移为 `vector://`
 * 菜单项 13 / `--tui` 启动只读仪表盘（1.7 显示上游 RTT）
 * Portal 中继可通过 `next=` 原生链式转发（与出站 `socks=` 互斥）
 * 原生链路上每个 Portal 须支持 Nowhere 1.7.0 HOPS 语义
 * 1.5+ 线协议要求 Portal 与客户端一并升级
+* Vector 与 Portal `next` 上游使用 `mux=0|1` 取代 `pool=`（1.8+）
 
 ## 支持系统
 
@@ -144,7 +146,7 @@ sudo ./oh-nowhere.sh \
 ```bash
 sudo ./oh-nowhere.sh \
   --config \
-  --url 'nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example' \
+  --url 'nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
   --socks 127.0.0.1:1080 \
   --lang zh
 ```
@@ -176,7 +178,7 @@ portal://relay-key@:2077?tls=1&net=mix&next=origin-key@origin.example:2077&up=ud
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.7.0 \
+  --version v1.8.2 \
   --key change-me \
   --port 2077 \
   --lang zh
@@ -185,7 +187,7 @@ sudo ./oh-nowhere.sh \
 升级或降级到指定版本：
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.7.0 --lang zh
+sudo ./oh-nowhere.sh --upgrade --version v1.8.2 --lang zh
 ```
 
 也可在菜单中选择 `12. 安装指定版本`，脚本会拉取 GitHub releases 列表；输入 `0` 选最新版，或输入对应编号。
@@ -196,7 +198,7 @@ sudo ./oh-nowhere.sh --upgrade --version v1.7.0 --lang zh
 
 | 角色 | 运行 URL | 出站 |
 | ---- | -------- | ---- |
-| `portal` | `portal://key@:port?...` | 可选 **出站 SOCKS**（`socks=host:port`）或 **原生链式**（`next=key@host:port` 配合 `up`/`down`/`pool`/`sni`/`pin`）；二者互斥 |
+| `portal` | `portal://key@:port?...` | 可选 **出站 SOCKS**（`socks=host:port`）或 **原生链式**（`next=key@host:port` 配合 `up`/`down`/`mux`/`sni`/`pin`）；二者互斥 |
 | `vector` | `vector://key@portal-host:port?...` | 必需 **入站** 监听（默认 `127.0.0.1:1080`） |
 
 同一时刻仅一种角色生效（单一 `url.conf` / `nowhere` 服务），需切换时请重新配置。
@@ -209,7 +211,7 @@ sudo ./oh-nowhere.sh --upgrade --version v1.7.0 --lang zh
 portal://relay-key@:2077?next=origin-key@origin.example:2077&up=udp&down=udp
 ```
 
-交互配置会询问出站模式：`none`、`socks` 或 `next`；选择 `next` 时继续配置上游载体及可选 `sni` / `pin`。
+交互配置会询问出站模式：`none`、`socks` 或 `next`；选择 `next` 时继续配置上游载体及可选 `mux` / `sni` / `pin`。
 
 可通过 `--url` 导入已有链式 Portal URL，或在配置菜单粘贴 `portal://...?next=...`；重新配置会保留 `next=` 及上游参数。
 
@@ -255,7 +257,7 @@ sudo ./oh-nowhere.sh \
 | 模式  | 说明           | 分享 URI 载体            |
 | ----- | -------------- | ------------------------ |
 | `mix` | TCP/UDP 混合   | `up=udp&down=udp`        |
-| `tcp` | 纯 TCP         | `up=tcp&down=tcp&pool=5` |
+| `tcp` | 纯 TCP         | `up=tcp&down=tcp&mux=1` |
 | `udp` | 纯 UDP         | `up=udp&down=udp`        |
 
 默认：`mix`。
@@ -268,7 +270,7 @@ sudo ./oh-nowhere.sh \
 
 ```text
 nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
-nowhere://change-me@relay.example:2077?up=tcp&down=tcp&pool=5&sni=relay.example#Nowhere-DE-45
+nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
 * 主机优先 `/etc/nowhere/host.conf`（或 `--host`），否则使用检测到的公网 IP
@@ -323,7 +325,7 @@ sudo ./oh-nowhere.sh [选项]
 | `--next <key@host:port>`    | Portal 原生上游（与 `--socks` 互斥） |
 | `--up <tcp\|udp>`           | 上行载体（Vector 或 Portal `next` 上游；默认 `udp`） |
 | `--down <tcp\|udp>`         | 下行载体（Vector 或 Portal `next` 上游；默认 `udp`） |
-| `--pool <n>`                | `tcp/tcp` 预热 TLS 池（Vector 或 Portal `next` 上游） |
+| `--mux <0\|1>`              | `tcp/tcp` 使用 TLS Mux（Vector 或 Portal `next` 上游，默认 `0`） |
 | `--sni <名称>`              | 证书名（Vector 或 Portal `next` 上游） |
 | `--pin <sha256>`            | 证书固定（Vector 或 Portal `next` 上游） |
 | `-v`, `--version <版本>`    | 安装指定 release |
@@ -331,6 +333,7 @@ sudo ./oh-nowhere.sh [选项]
 | `-h`, `--help`              | 显示帮助 |
 
 `--spec` 仍接受但会警告并忽略（Nowhere 1.5 已移除）。
+`--pool` 仍接受但会警告并忽略（Nowhere 1.8 已移除，请改用 `--mux`）。
 
 ## 常用命令
 
@@ -349,7 +352,7 @@ sudo ./oh-nowhere.sh --upgrade --lang zh
 安装指定版本：
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.7.0 --lang zh
+sudo ./oh-nowhere.sh --install --version v1.8.2 --lang zh
 ```
 
 重新配置：
