@@ -134,7 +134,7 @@ set_language() {
             MSG[warn_migrated_spec]="Removed deprecated spec= from %s (Nowhere 1.5)"
             MSG[warn_pool_removed]="pool was removed in Nowhere 1.8 (replaced by mux); ignoring --pool"
             MSG[warn_migrated_pool]="Removed deprecated pool= from %s; added mux=1 where applicable (Nowhere 1.8)"
-            MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only). 1.7 adds native Portal chaining (next=); every hop must be 1.7.0+. 1.8 replaces the tcp/tcp warm pool with mux=0|1 TLS Mux (pool= removed)."
+            MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only). 1.7 adds native Portal chaining (next=); every hop must be 1.7.0+. 1.8 replaces the tcp/tcp warm pool with mux=0|1 TLS Mux (pool= removed). 1.8.3 adds mixed carrier policy: up/down accept tcp|udp|mix."
             MSG[help_opt_next]="      --next <key@host:port>  Portal native upstream (mutually exclusive with --socks)"
             MSG[prompt_outbound_mode]="Portal outbound (none/socks/next) [%s]: "
             MSG[prompt_next]="Native upstream Portal next=<key@host:port> [%s]: "
@@ -255,18 +255,18 @@ set_language() {
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <path>   Key path when TLS=2"
             MSG[help_opt_socks]="      --socks <addr>    Portal outbound or Vector inbound SOCKS"
-            MSG[help_opt_up]="      --up <tcp|udp>    Uplink carrier (Vector or Portal next upstream; default udp)"
-            MSG[help_opt_down]="      --down <tcp|udp>  Downlink carrier (Vector or Portal next upstream; default udp)"
-            MSG[help_opt_mux]="      --mux <0|1>       Use TLS Mux for tcp/tcp (Vector or Portal next upstream, default 0)"
+            MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink carrier (Vector or Portal next upstream; default udp)"
+            MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink carrier (Vector or Portal next upstream; default udp)"
+            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux when a direction is tcp or mix (ignored for udp/udp; default 0)"
             MSG[help_opt_sni]="      --sni <name>      Certificate name (Vector or Portal next upstream)"
             MSG[help_opt_pin]="      --pin <sha256>    Certificate pin (Vector or Portal next upstream)"
-            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.8.2)"
+            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Script language (default zh)"
             MSG[prompt_type]="Service type (portal/vector) or paste nowhere:// [%s]: "
             MSG[prompt_type_hint]="Enter portal, vector, or paste a nowhere:// / vector:// / portal:// URL"
             MSG[prompt_portal_host]="Portal host [%s]: "
-            MSG[prompt_up]="Uplink carrier (tcp/udp) [%s]: "
-            MSG[prompt_down]="Downlink carrier (tcp/udp) [%s]: "
+            MSG[prompt_up]="Uplink carrier (tcp/udp/mix) [%s]: "
+            MSG[prompt_down]="Downlink carrier (tcp/udp/mix) [%s]: "
             MSG[prompt_mux]="Use TLS Mux (0/1) [%s]: "
             MSG[prompt_socks_in]="Inbound SOCKS listen [%s]: "
             MSG[prompt_socks_out_enable]="Enable Portal outbound SOCKS? [%s]: "
@@ -282,6 +282,7 @@ set_language() {
             MSG[label_socks]="SOCKS:      %s"
             MSG[err_binary_missing]="nowhere binary not installed; install first"
             MSG[err_invalid_type]="Invalid type: %s (use portal|vector)"
+            MSG[err_invalid_carrier]="Invalid carrier: %s (use tcp|udp|mix)"
             MSG[err_invalid_url]="Invalid URL: %s"
             MSG[err_socks_required]="Vector requires an inbound SOCKS listen address"
             MSG[err_portal_host_required]="Vector requires a Portal host"
@@ -342,7 +343,7 @@ set_language() {
             MSG[warn_migrated_spec]="Удалён устаревший spec= из %s (Nowhere 1.5)"
             MSG[warn_pool_removed]="Параметр pool удалён в Nowhere 1.8 (заменён на mux); --pool игнорируется"
             MSG[warn_migrated_pool]="Удалён устаревший pool= из %s; при необходимости добавлен mux=1 (Nowhere 1.8)"
-            MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux). 1.7 добавляет цепочку Portal (next=); каждый узел должен быть 1.7.0+. 1.8 заменяет тёплый пул tcp/tcp на TLS Mux mux=0|1 (pool= удалён)."
+            MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux). 1.7 добавляет цепочку Portal (next=); каждый узел должен быть 1.7.0+. 1.8 заменяет тёплый пул tcp/tcp на TLS Mux mux=0|1 (pool= удалён). 1.8.3 добавляет смешанную политику носителей: up/down принимают tcp|udp|mix."
             MSG[help_opt_next]="      --next <key@host:port>  Следующий Portal (next=; несовместимо с --socks)"
             MSG[prompt_outbound_mode]="Исходящий Portal (none/socks/next) [%s]: "
             MSG[prompt_next]="Следующий Portal next=<key@host:port> [%s]: "
@@ -463,18 +464,18 @@ set_language() {
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <путь>   Ключ при TLS=2"
             MSG[help_opt_socks]="      --socks <addr>    Исходящий SOCKS Portal или входящий SOCKS Vector"
-            MSG[help_opt_up]="      --up <tcp|udp>    Uplink (Vector или upstream Portal next; по умолчанию udp)"
-            MSG[help_opt_down]="      --down <tcp|udp>  Downlink (Vector или upstream Portal next; по умолчанию udp)"
-            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux для tcp/tcp (Vector или Portal next, по умолчанию 0)"
+            MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink (Vector или upstream Portal next; по умолчанию udp)"
+            MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink (Vector или upstream Portal next; по умолчанию udp)"
+            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux, если направление tcp или mix (игнорируется для udp/udp; по умолчанию 0)"
             MSG[help_opt_sni]="      --sni <имя>       Имя сертификата (Vector или Portal next)"
             MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата (Vector или Portal next)"
-            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.8.2)"
+            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Язык скрипта (по умолчанию zh)"
             MSG[prompt_type]="Тип службы (portal/vector) или вставьте nowhere:// [%s]: "
             MSG[prompt_type_hint]="Введите portal, vector или вставьте nowhere:// / vector:// / portal:// URL"
             MSG[prompt_portal_host]="Хост Portal [%s]: "
-            MSG[prompt_up]="Uplink (tcp/udp) [%s]: "
-            MSG[prompt_down]="Downlink (tcp/udp) [%s]: "
+            MSG[prompt_up]="Uplink (tcp/udp/mix) [%s]: "
+            MSG[prompt_down]="Downlink (tcp/udp/mix) [%s]: "
             MSG[prompt_mux]="TLS Mux (0/1) [%s]: "
             MSG[prompt_socks_in]="Входящий SOCKS [%s]: "
             MSG[prompt_socks_out_enable]="Включить исходящий SOCKS Portal? [%s]: "
@@ -490,6 +491,7 @@ set_language() {
             MSG[label_socks]="SOCKS:      %s"
             MSG[err_binary_missing]="Бинарник nowhere не установлен"
             MSG[err_invalid_type]="Неверный тип: %s (portal|vector)"
+            MSG[err_invalid_carrier]="Неверный носитель: %s (tcp|udp|mix)"
             MSG[err_invalid_url]="Неверный URL: %s"
             MSG[err_socks_required]="Vector требует адрес входящего SOCKS"
             MSG[err_portal_host_required]="Vector требует хост Portal"
@@ -551,7 +553,7 @@ set_language() {
             MSG[warn_migrated_spec]="已从 %s 移除废弃的 spec=（Nowhere 1.5）"
             MSG[warn_pool_removed]="Nowhere 1.8 已移除 pool（由 mux 取代）；忽略 --pool"
             MSG[warn_migrated_pool]="已从 %s 移除废弃的 pool=，并在适用时写入 mux=1（Nowhere 1.8）"
-            MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。1.7 新增 Portal 原生链式转发（next=），链路上各节点须 ≥1.7.0。1.8 以 mux=0|1 TLS Mux 取代 tcp/tcp 预热连接池（pool= 已移除）。"
+            MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。1.7 新增 Portal 原生链式转发（next=），链路上各节点须 ≥1.7.0。1.8 以 mux=0|1 TLS Mux 取代 tcp/tcp 预热连接池（pool= 已移除）。1.8.3 新增混合载体策略：up/down 可为 tcp|udp|mix。"
             MSG[help_opt_next]="      --next <key@host:port>  Portal 原生上游（与 --socks 互斥）"
             MSG[prompt_outbound_mode]="Portal 出站模式 (none/socks/next) [%s]: "
             MSG[prompt_next]="原生上游 Portal next=<key@host:port> [%s]: "
@@ -672,18 +674,18 @@ set_language() {
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
             MSG[help_opt_keyfile]="      --keyfile <路径>   TLS=2 时的私钥路径"
             MSG[help_opt_socks]="      --socks <地址>    Portal 出站或 Vector 入站 SOCKS"
-            MSG[help_opt_up]="      --up <tcp|udp>    上行载体（Vector 或 Portal next 上游；默认 udp）"
-            MSG[help_opt_down]="      --down <tcp|udp>  下行载体（Vector 或 Portal next 上游；默认 udp）"
-            MSG[help_opt_mux]="      --mux <0|1>       tcp/tcp 使用 TLS Mux（Vector 或 Portal next 上游，默认 0）"
+            MSG[help_opt_up]="      --up <tcp|udp|mix>  上行载体（Vector 或 Portal next 上游；默认 udp）"
+            MSG[help_opt_down]="      --down <tcp|udp|mix>  下行载体（Vector 或 Portal next 上游；默认 udp）"
+            MSG[help_opt_mux]="      --mux <0|1>       方向为 tcp 或 mix 时使用 TLS Mux（udp/udp 忽略；默认 0）"
             MSG[help_opt_sni]="      --sni <名称>      证书名（Vector 或 Portal next 上游）"
             MSG[help_opt_pin]="      --pin <sha256>    证书固定（Vector 或 Portal next 上游）"
-            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.8.2)"
+            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  脚本语言 (默认 zh)"
             MSG[prompt_type]="服务类型 (portal/vector) 或粘贴 nowhere:// [%s]: "
             MSG[prompt_type_hint]="输入 portal、vector，或粘贴 nowhere:// / vector:// / portal:// URL"
             MSG[prompt_portal_host]="Portal 主机 [%s]: "
-            MSG[prompt_up]="上行载体 (tcp/udp) [%s]: "
-            MSG[prompt_down]="下行载体 (tcp/udp) [%s]: "
+            MSG[prompt_up]="上行载体 (tcp/udp/mix) [%s]: "
+            MSG[prompt_down]="下行载体 (tcp/udp/mix) [%s]: "
             MSG[prompt_mux]="使用 TLS Mux (0/1) [%s]: "
             MSG[prompt_socks_in]="入站 SOCKS 监听 [%s]: "
             MSG[prompt_socks_out_enable]="启用 Portal 出站 SOCKS? [%s]: "
@@ -699,6 +701,7 @@ set_language() {
             MSG[label_socks]="SOCKS:      %s"
             MSG[err_binary_missing]="未安装 nowhere 二进制，请先安装"
             MSG[err_invalid_type]="无效类型: %s（使用 portal|vector）"
+            MSG[err_invalid_carrier]="无效载体: %s（使用 tcp|udp|mix）"
             MSG[err_invalid_url]="无效 URL: %s"
             MSG[err_socks_required]="Vector 需要入站 SOCKS 监听地址"
             MSG[err_portal_host_required]="Vector 需要 Portal 主机"
@@ -1032,6 +1035,38 @@ validate_portal_outbound() {
     return 0
 }
 
+validate_carrier() {
+    case "$1" in
+        tcp|udp|mix) return 0 ;;
+        *)
+            log_error "$(t err_invalid_carrier "$1")"
+            return 1
+            ;;
+    esac
+}
+
+mux_applies() {
+    local up="$1" down="$2"
+    # Mux applies when at least one direction is tcp or mix (Nowhere 1.8.3).
+    [[ "$up" != "udp" || "$down" != "udp" ]]
+}
+
+append_mux_query() {
+    # tcp/tcp defaults to mux=1; udp/udp omits mux (canonical 0).
+    local url="$1" up="$2" down="$3" mux="$4"
+    if [[ "$up" == "udp" && "$down" == "udp" ]]; then
+        printf '%s' "$url"
+        return
+    fi
+    if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+        mux="${mux:-1}"
+    fi
+    if [[ -n "$mux" ]]; then
+        url="${url}&mux=${mux}"
+    fi
+    printf '%s' "$url"
+}
+
 load_portal_outbound_from_url() {
     local url="$1"
     PORTAL_SOCKS=""
@@ -1080,7 +1115,7 @@ collect_portal_outbound_interactive() {
     next=""
     up="${up:-udp}"
     down="${down:-udp}"
-    mux="${mux:-1}"
+    mux="${mux:-0}"
     sni="${sni:-}"
     pin="${pin:-}"
 
@@ -1103,9 +1138,11 @@ collect_portal_outbound_interactive() {
             read -rp "$(t prompt_down "$down")" down_input
             [[ -n "$down_input" ]] && down="$down_input"
 
-            if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+            if mux_applies "$up" "$down"; then
                 read -rp "$(t prompt_mux "$mux")" mux_input
                 [[ -n "$mux_input" ]] && mux="$mux_input"
+            else
+                mux=""
             fi
 
             read -rp "$(t prompt_sni "$sni")" sni_input
@@ -1211,14 +1248,12 @@ build_portal_url() {
     if [[ -n "$next" && "$next" != "none" ]]; then
         up="${up:-udp}"
         down="${down:-udp}"
+        if ! validate_carrier "$up" || ! validate_carrier "$down"; then
+            return 1
+        fi
         url="${url}&next=$(encode_next_endpoint "$next")"
         url="${url}&up=${up}&down=${down}"
-        if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
-            mux="${mux:-1}"
-            url="${url}&mux=${mux}"
-        elif [[ -n "$mux" ]]; then
-            url="${url}&mux=${mux}"
-        fi
+        url=$(append_mux_query "$url" "$up" "$down" "$mux")
         if [[ -n "$sni" && "$sni" != "none" ]]; then
             url="${url}&sni=${sni}"
         fi
@@ -1241,13 +1276,13 @@ build_vector_url() {
     local sni="${9:-}"
     local pin="${10:-}"
 
-    local url="vector://${key}@${host}:${port}?up=${up}&down=${down}&socks=$(encode_socks_endpoint "$socks")"
-    if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
-        mux="${mux:-1}"
-        url="${url}&mux=${mux}"
-    elif [[ -n "$mux" ]]; then
-        url="${url}&mux=${mux}"
+    up="${up:-udp}"
+    down="${down:-udp}"
+    if ! validate_carrier "$up" || ! validate_carrier "$down"; then
+        return 1
     fi
+    local url="vector://${key}@${host}:${port}?up=${up}&down=${down}&socks=$(encode_socks_endpoint "$socks")"
+    url=$(append_mux_query "$url" "$up" "$down" "$mux")
     if [[ -n "$sni" && "$sni" != "none" ]]; then
         url="${url}&sni=${sni}"
     fi
@@ -1960,9 +1995,11 @@ configure_nowhere() {
             read -rp "$(t prompt_down "$down")" down_input
             [[ -n "$down_input" ]] && down="$down_input"
 
-            if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+            if mux_applies "$up" "$down"; then
                 read -rp "$(t prompt_mux "$mux")" mux_input
                 [[ -n "$mux_input" ]] && mux="$mux_input"
+            else
+                mux=""
             fi
 
             socks="${socks:-$DEFAULT_SOCKS_IN}"
@@ -2285,6 +2322,13 @@ auto_install_nowhere() {
             read -rp "$(t prompt_down "$down")" down_input
             [[ -n "$down_input" ]] && down="$down_input"
 
+            if mux_applies "$up" "$down"; then
+                read -rp "$(t prompt_mux "${mux:-0}")" mux_input
+                [[ -n "$mux_input" ]] && mux="$mux_input"
+            else
+                mux=""
+            fi
+
             read -rp "$(t prompt_socks_in "$socks")" socks_input
             [[ -n "$socks_input" ]] && socks="$socks_input"
 
@@ -2448,9 +2492,9 @@ show_share_uri() {
             client_uri=$(append_query_param "$client_uri" "down=udp")
             ;;
         *)
-            # mix / default: match upstream client defaults
-            client_uri=$(append_query_param "$client_uri" "up=udp")
-            client_uri=$(append_query_param "$client_uri" "down=udp")
+            # mix / default: mixed carrier policy (Nowhere 1.8.3)
+            client_uri=$(append_query_param "$client_uri" "up=mix")
+            client_uri=$(append_query_param "$client_uri" "down=mix")
             ;;
     esac
 
@@ -2785,12 +2829,13 @@ $(t help_examples)
   bash oh-nowhere.sh --install --key mysecret --port 2088
   bash oh-nowhere.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
   bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --socks 127.0.0.1:1080
+  bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --up mix --down mix --socks 127.0.0.1:1080
   bash oh-nowhere.sh --install --type portal --key relay-key --next 'origin-key@origin.example:2077' --up udp --down udp
   bash oh-nowhere.sh --config --url 'nowhere://mysecret@relay.example:2077?up=tcp&down=tcp'
   bash oh-nowhere.sh -l en --status
   bash oh-nowhere.sh --tui
   bash oh-nowhere.sh --upgrade-script --lang en
-  bash oh-nowhere.sh --version v1.8.2 --install --key mysecret
+  bash oh-nowhere.sh --version v1.8.3 --install --key mysecret
 EOF
 }
 
@@ -2815,8 +2860,28 @@ parse_args() {
             --name)             ARG_NAME="$2"; shift ;;
             --socks)            ARG_SOCKS="$2"; shift ;;
             --next)             ARG_NEXT="$2"; shift ;;
-            --up)               ARG_UP="$2"; shift ;;
-            --down)             ARG_DOWN="$2"; shift ;;
+            --up)
+                ARG_UP="$2"
+                case "$ARG_UP" in
+                    tcp|udp|mix) ;;
+                    *)
+                        log_error "$(t err_invalid_carrier "$ARG_UP")"
+                        exit 1
+                        ;;
+                esac
+                shift
+                ;;
+            --down)
+                ARG_DOWN="$2"
+                case "$ARG_DOWN" in
+                    tcp|udp|mix) ;;
+                    *)
+                        log_error "$(t err_invalid_carrier "$ARG_DOWN")"
+                        exit 1
+                        ;;
+                esac
+                shift
+                ;;
             --mux)              ARG_MUX="$2"; shift ;;
             --pool)
                 # Kept for automation compatibility; Nowhere 1.8 replaced pool with mux.

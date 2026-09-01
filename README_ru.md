@@ -25,6 +25,7 @@
 * Выбор сборки GNU libc / musl
 * Роли Portal или Vector
 * Исходящий SOCKS5 Portal, native chaining Portal (`next=`), входящий SOCKS5 Vector
+* Смешанная политика носителей (`tcp` / `udp` / `mix`) для Vector и Portal `next` (Nowhere 1.8.3)
 * Импорт share URI `nowhere://` (автоконвертация в `vector://`)
 * Запуск read-only TUI Nowhere (`nowhere tui`)
 * Просмотр статуса службы
@@ -34,7 +35,7 @@
 
 ## Nowhere 1.5 / 1.6 / 1.7 / 1.8
 
-Nowhere **1.5** вводит новый wire-протокол и удаляет параметр Portal `spec`. Nowhere **1.6** добавляет read-only TUI и структурированную локальную телеметрию (только Linux). Wire-протокол не менялся с 1.5.x. Nowhere **1.7** добавляет native chaining Portal-to-Portal (`next=`), upstream RTT в EVENT / telemetry / TUI и бюджет из семи переходов. Nowhere **1.8** заменяет тёплый TLS-пул `tcp/tcp` (`pool=<n>`) на TLS Mux (`mux=0|1`); параметр `pool` удалён.
+Nowhere **1.5** вводит новый wire-протокол и удаляет параметр Portal `spec`. Nowhere **1.6** добавляет read-only TUI и структурированную локальную телеметрию (только Linux). Wire-протокол не менялся с 1.5.x. Nowhere **1.7** добавляет native chaining Portal-to-Portal (`next=`), upstream RTT в EVENT / telemetry / TUI и бюджет из семи переходов. Nowhere **1.8** заменяет тёплый TLS-пул `tcp/tcp` (`pool=<n>`) на TLS Mux (`mux=0|1`); параметр `pool` удалён. Nowhere **1.8.3** добавляет смешанную политику носителей: Vector и Portal `next` принимают `up`/`down` = `tcp`, `udp` или `mix`.
 
 Скрипт адаптирован под эти релизы:
 
@@ -51,6 +52,9 @@ Nowhere **1.5** вводит новый wire-протокол и удаляет 
 * Каждый Portal в native chain должен поддерживать семантику HOPS Nowhere 1.7.0
 * Для wire 1.5+ Portal и клиенты нужно обновлять вместе
 * Vector и upstream Portal `next` используют `mux=0|1` вместо `pool=` (1.8+)
+* Vector и Portal `next` принимают `up`/`down` = `tcp|udp|mix` (1.8.3+); `mix/mix` для каждого потока разрешается в `tcp/tcp` или `udp/udp`
+* Mux предлагается, если направление `tcp` или `mix`; для `udp/udp` `mux` не пишется (каноническое значение `0`)
+* Share URI Portal с `net=mix` используют `up=mix&down=mix`
 
 ## Поддерживаемые системы
 
@@ -141,6 +145,21 @@ sudo ./oh-nowhere.sh \
   --lang ru
 ```
 
+Установка Vector со смешанными носителями (Nowhere 1.8.3+; `mix/mix` выбирает `tcp/tcp` или `udp/udp` для каждого потока):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type vector \
+  --key change-me \
+  --host relay.example \
+  --port 2077 \
+  --up mix \
+  --down mix \
+  --socks 127.0.0.1:1080 \
+  --lang ru
+```
+
 Импорт share URI (автоконвертация `nowhere://` → `vector://`):
 
 ```bash
@@ -178,7 +197,7 @@ portal://relay-key@:2077?tls=1&net=mix&next=origin-key@origin.example:2077&up=ud
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.8.2 \
+  --version v1.8.3 \
   --key change-me \
   --port 2077 \
   --lang ru
@@ -187,7 +206,7 @@ sudo ./oh-nowhere.sh \
 Обновление или откат:
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.8.2 --lang ru
+sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang ru
 ```
 
 Также можно выбрать пункт меню `12. Установить указанную версию`: скрипт загрузит список GitHub releases. `0` — последняя версия, иначе номер из списка.
@@ -256,7 +275,7 @@ sudo ./oh-nowhere.sh \
 
 | Режим | Описание              | Носители share URI       |
 | ----- | --------------------- | ------------------------ |
-| `mix` | Смешанный TCP/UDP     | `up=udp&down=udp`        |
+| `mix` | Смешанный TCP/UDP     | `up=mix&down=mix`        |
 | `tcp` | Только TCP            | `up=tcp&down=tcp&mux=1` |
 | `udp` | Только UDP            | `up=udp&down=udp`        |
 
@@ -269,7 +288,7 @@ sudo ./oh-nowhere.sh \
 Примеры:
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@203.0.113.10:2077?up=mix&down=mix#Nowhere-US-203
 nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
@@ -323,9 +342,9 @@ sudo ./oh-nowhere.sh [опции]
 | `--keyfile <путь>`          | Ключ при `tls=2` |
 | `--socks <addr>`            | Исходящий SOCKS Portal или входящий SOCKS Vector |
 | `--next <key@host:port>`    | Native upstream Portal (несовместимо с `--socks`) |
-| `--up <tcp\|udp>`           | Uplink (Vector или upstream Portal `next`; по умолчанию `udp`) |
-| `--down <tcp\|udp>`         | Downlink (Vector или upstream Portal `next`; по умолчанию `udp`) |
-| `--mux <0\|1>`              | TLS Mux для `tcp/tcp` (Vector или Portal `next`, по умолчанию `0`) |
+| `--up <tcp\|udp\|mix>`      | Uplink (Vector или upstream Portal `next`; по умолчанию `udp`) |
+| `--down <tcp\|udp\|mix>`    | Downlink (Vector или upstream Portal `next`; по умолчанию `udp`) |
+| `--mux <0\|1>`              | TLS Mux, если направление `tcp` или `mix` (игнорируется для `udp/udp`; по умолчанию `0`) |
 | `--sni <имя>`               | Имя сертификата (Vector или Portal `next`) |
 | `--pin <sha256>`            | Pin сертификата (Vector или Portal `next`) |
 | `-v`, `--version <ver>`     | Установить указанный release |
@@ -352,7 +371,7 @@ sudo ./oh-nowhere.sh --upgrade --lang ru
 Установка указанной версии:
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.8.2 --lang ru
+sudo ./oh-nowhere.sh --install --version v1.8.3 --lang ru
 ```
 
 Перенастройка:

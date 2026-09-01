@@ -25,6 +25,7 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 * GNU libc and musl build selection
 * Portal or Vector role selection
 * Portal outbound SOCKS5, native Portal chaining (`next=`), and Vector inbound SOCKS5
+* Mixed carrier policy (`tcp` / `udp` / `mix`) for Vector and Portal `next` (Nowhere 1.8.3)
 * Import `nowhere://` share URIs (auto-convert to `vector://`)
 * Launch Nowhere read-only TUI (`nowhere tui`)
 * Service status display
@@ -34,7 +35,7 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 
 ## Nowhere 1.5 / 1.6 / 1.7 / 1.8 Notes
 
-Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. Nowhere **1.6** adds a read-only TUI and structured local telemetry (Linux-only). Wire protocol is unchanged from 1.5.x. Nowhere **1.7** adds native Portal-to-Portal chaining (`next=`), upstream RTT in EVENT logs / telemetry / TUI, and a seven-hop forwarding budget. Nowhere **1.8** replaces the `tcp/tcp` warm TLS pool (`pool=<n>`) with TLS Mux (`mux=0|1`); the `pool` parameter is removed.
+Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. Nowhere **1.6** adds a read-only TUI and structured local telemetry (Linux-only). Wire protocol is unchanged from 1.5.x. Nowhere **1.7** adds native Portal-to-Portal chaining (`next=`), upstream RTT in EVENT logs / telemetry / TUI, and a seven-hop forwarding budget. Nowhere **1.8** replaces the `tcp/tcp` warm TLS pool (`pool=<n>`) with TLS Mux (`mux=0|1`); the `pool` parameter is removed. Nowhere **1.8.3** adds mixed carrier policy: Vector and Portal `next` `up`/`down` accept `tcp`, `udp`, or `mix`.
 
 This script is adapted for those releases:
 
@@ -51,6 +52,9 @@ This script is adapted for those releases:
 * Every Portal in a native chain must support Nowhere 1.7.0 HOPS semantics
 * Portal and clients must be upgraded together for 1.5+ wire
 * Vector and Portal `next` upstreams use `mux=0|1` instead of `pool=` (1.8+)
+* Vector and Portal `next` `up`/`down` accept `tcp|udp|mix` (1.8.3+); `mix/mix` resolves per flow to `tcp/tcp` or `udp/udp`
+* Mux is offered when a direction is `tcp` or `mix`; `udp/udp` omits `mux` (canonical `0`)
+* Portal `net=mix` share URIs use `up=mix&down=mix`
 
 ## Supported Systems
 
@@ -141,6 +145,21 @@ sudo ./oh-nowhere.sh \
   --lang en
 ```
 
+Install Vector with mixed carriers (Nowhere 1.8.3+; `mix/mix` picks `tcp/tcp` or `udp/udp` per flow):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type vector \
+  --key change-me \
+  --host relay.example \
+  --port 2077 \
+  --up mix \
+  --down mix \
+  --socks 127.0.0.1:1080 \
+  --lang en
+```
+
 Import a share URI (auto-converts `nowhere://` → `vector://`):
 
 ```bash
@@ -178,7 +197,7 @@ Install a specific upstream release from the command line:
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.8.2 \
+  --version v1.8.3 \
   --key change-me \
   --port 2077 \
   --lang en
@@ -187,7 +206,7 @@ sudo ./oh-nowhere.sh \
 Upgrade or downgrade to a specific version:
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.8.2 --lang en
+sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang en
 ```
 
 You can also select a version interactively by choosing menu item `12. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
@@ -258,7 +277,7 @@ The script supports the following Nowhere Portal network modes:
 
 | Mode  | Description                         | Share URI carriers       |
 | ----- | ----------------------------------- | ------------------------ |
-| `mix` | Enable mixed TCP/UDP transport mode | `up=udp&down=udp`        |
+| `mix` | Enable mixed TCP/UDP transport mode | `up=mix&down=mix`        |
 | `tcp` | Enable TCP mode                     | `up=tcp&down=tcp&mux=1` |
 | `udp` | Enable UDP mode                     | `up=udp&down=udp`        |
 
@@ -275,7 +294,7 @@ Menu item 9 / `--share` prints a `nowhere://` import URI for clients when the se
 Examples:
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@203.0.113.10:2077?up=mix&down=mix#Nowhere-US-203
 nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
@@ -329,9 +348,9 @@ sudo ./oh-nowhere.sh [options]
 | `--keyfile <path>`          | Private key path when `tls=2`                    |
 | `--socks <addr>`            | Portal outbound or Vector inbound SOCKS          |
 | `--next <key@host:port>`    | Portal native upstream (mutually exclusive with `--socks`) |
-| `--up <tcp\|udp>`           | Uplink carrier (Vector or Portal `next` upstream; default `udp`) |
-| `--down <tcp\|udp>`         | Downlink carrier (Vector or Portal `next` upstream; default `udp`) |
-| `--mux <0\|1>`              | Use TLS Mux for `tcp/tcp` (Vector or Portal `next` upstream, default `0`) |
+| `--up <tcp\|udp\|mix>`      | Uplink carrier (Vector or Portal `next` upstream; default `udp`) |
+| `--down <tcp\|udp\|mix>`    | Downlink carrier (Vector or Portal `next` upstream; default `udp`) |
+| `--mux <0\|1>`              | TLS Mux when a direction is `tcp` or `mix` (ignored for `udp/udp`; default `0`) |
 | `--sni <name>`              | Certificate name (Vector or Portal `next` upstream) |
 | `--pin <sha256>`            | Certificate pin (Vector or Portal `next` upstream) |
 | `-v`, `--version <ver>`     | Install a specific release version               |
@@ -358,7 +377,7 @@ sudo ./oh-nowhere.sh --upgrade --lang en
 Install a specific Nowhere version:
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.8.2 --lang en
+sudo ./oh-nowhere.sh --install --version v1.8.3 --lang en
 ```
 
 Reconfigure the service:

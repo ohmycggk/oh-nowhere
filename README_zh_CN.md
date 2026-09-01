@@ -25,6 +25,7 @@
 * GNU libc / musl 构建自动选择
 * Portal 或 Vector 角色选择
 * Portal 出站 SOCKS5、原生 Portal 链式转发（`next=`）、Vector 入站 SOCKS5
+* Vector 与 Portal `next` 支持混合载体策略（`tcp` / `udp` / `mix`，Nowhere 1.8.3）
 * 导入 `nowhere://` 分享 URI（自动转为 `vector://`）
 * 启动 Nowhere 只读 TUI（`nowhere tui`）
 * 服务状态查看
@@ -34,7 +35,7 @@
 
 ## Nowhere 1.5 / 1.6 / 1.7 / 1.8 说明
 
-Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere **1.6** 新增只读 TUI 与结构化本地遥测（仅 Linux）。线协议与 1.5.x 相同。Nowhere **1.7** 新增 Portal 原生链式转发（`next=`）、EVENT / 遥测 / TUI 中的上游 RTT，以及七跳转发预算。Nowhere **1.8** 以 TLS Mux（`mux=0|1`）取代原先 `tcp/tcp` 场景下的 `pool=<n>` 预热连接池，`pool` 参数已移除。
+Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere **1.6** 新增只读 TUI 与结构化本地遥测（仅 Linux）。线协议与 1.5.x 相同。Nowhere **1.7** 新增 Portal 原生链式转发（`next=`）、EVENT / 遥测 / TUI 中的上游 RTT，以及七跳转发预算。Nowhere **1.8** 以 TLS Mux（`mux=0|1`）取代原先 `tcp/tcp` 场景下的 `pool=<n>` 预热连接池，`pool` 参数已移除。Nowhere **1.8.3** 新增混合载体策略：Vector 与 Portal `next` 的 `up`/`down` 可为 `tcp`、`udp` 或 `mix`。
 
 本脚本已适配上述版本：
 
@@ -51,6 +52,9 @@ Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere *
 * 原生链路上每个 Portal 须支持 Nowhere 1.7.0 HOPS 语义
 * 1.5+ 线协议要求 Portal 与客户端一并升级
 * Vector 与 Portal `next` 上游使用 `mux=0|1` 取代 `pool=`（1.8+）
+* Vector 与 Portal `next` 的 `up`/`down` 支持 `tcp|udp|mix`（1.8.3+）；`mix/mix` 按流解析为 `tcp/tcp` 或 `udp/udp`
+* 方向为 `tcp` 或 `mix` 时询问 Mux；`udp/udp` 不写入 `mux`（规范值为 `0`）
+* Portal `net=mix` 的分享 URI 使用 `up=mix&down=mix`
 
 ## 支持系统
 
@@ -141,6 +145,21 @@ sudo ./oh-nowhere.sh \
   --lang zh
 ```
 
+安装混合载体 Vector（Nowhere 1.8.3+；`mix/mix` 按流选择 `tcp/tcp` 或 `udp/udp`）：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type vector \
+  --key change-me \
+  --host relay.example \
+  --port 2077 \
+  --up mix \
+  --down mix \
+  --socks 127.0.0.1:1080 \
+  --lang zh
+```
+
 导入分享 URI（`nowhere://` 自动转为 `vector://`）：
 
 ```bash
@@ -178,7 +197,7 @@ portal://relay-key@:2077?tls=1&net=mix&next=origin-key@origin.example:2077&up=ud
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.8.2 \
+  --version v1.8.3 \
   --key change-me \
   --port 2077 \
   --lang zh
@@ -187,7 +206,7 @@ sudo ./oh-nowhere.sh \
 升级或降级到指定版本：
 
 ```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.8.2 --lang zh
+sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang zh
 ```
 
 也可在菜单中选择 `12. 安装指定版本`，脚本会拉取 GitHub releases 列表；输入 `0` 选最新版，或输入对应编号。
@@ -256,7 +275,7 @@ sudo ./oh-nowhere.sh \
 
 | 模式  | 说明           | 分享 URI 载体            |
 | ----- | -------------- | ------------------------ |
-| `mix` | TCP/UDP 混合   | `up=udp&down=udp`        |
+| `mix` | TCP/UDP 混合   | `up=mix&down=mix`        |
 | `tcp` | 纯 TCP         | `up=tcp&down=tcp&mux=1` |
 | `udp` | 纯 UDP         | `up=udp&down=udp`        |
 
@@ -269,7 +288,7 @@ sudo ./oh-nowhere.sh \
 示例：
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@203.0.113.10:2077?up=mix&down=mix#Nowhere-US-203
 nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
@@ -323,9 +342,9 @@ sudo ./oh-nowhere.sh [选项]
 | `--keyfile <路径>`          | `tls=2` 时私钥路径 |
 | `--socks <地址>`            | Portal 出站或 Vector 入站 SOCKS |
 | `--next <key@host:port>`    | Portal 原生上游（与 `--socks` 互斥） |
-| `--up <tcp\|udp>`           | 上行载体（Vector 或 Portal `next` 上游；默认 `udp`） |
-| `--down <tcp\|udp>`         | 下行载体（Vector 或 Portal `next` 上游；默认 `udp`） |
-| `--mux <0\|1>`              | `tcp/tcp` 使用 TLS Mux（Vector 或 Portal `next` 上游，默认 `0`） |
+| `--up <tcp\|udp\|mix>`      | 上行载体（Vector 或 Portal `next` 上游；默认 `udp`） |
+| `--down <tcp\|udp\|mix>`    | 下行载体（Vector 或 Portal `next` 上游；默认 `udp`） |
+| `--mux <0\|1>`              | 方向为 `tcp` 或 `mix` 时使用 TLS Mux（`udp/udp` 忽略；默认 `0`） |
 | `--sni <名称>`              | 证书名（Vector 或 Portal `next` 上游） |
 | `--pin <sha256>`            | 证书固定（Vector 或 Portal `next` 上游） |
 | `-v`, `--version <版本>`    | 安装指定 release |
@@ -352,7 +371,7 @@ sudo ./oh-nowhere.sh --upgrade --lang zh
 安装指定版本：
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.8.2 --lang zh
+sudo ./oh-nowhere.sh --install --version v1.8.3 --lang zh
 ```
 
 重新配置：
