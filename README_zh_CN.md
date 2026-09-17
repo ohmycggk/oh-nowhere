@@ -97,6 +97,8 @@ Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere *
 * `x86_64`（FreeBSD 上为 `amd64`）
 * `aarch64`（FreeBSD 上为 `arm64`）
 
+近期 GNU Linux 构建需要 **glibc 2.39**（Ubuntu 24.04 / Debian 13）。Debian 12 等较旧 glibc 主机会自动改用 musl 构建。
+
 ## 快速开始
 
 下载脚本：

@@ -30,6 +30,8 @@ SCRIPT_BRANCH="main"
 SCRIPT_FILENAME="oh-nowhere.sh"
 SCRIPT_RAW_URL="https://raw.githubusercontent.com/${SCRIPT_REPO}/${SCRIPT_BRANCH}/${SCRIPT_FILENAME}"
 DEFAULT_ALPN="now/1"
+# Recent GNU Nowhere assets are built on Ubuntu 24.04 (glibc 2.39).
+GNU_MIN_GLIBC="2.39"
 
 # Detected system info
 OS_ID=""
@@ -109,6 +111,10 @@ set_language() {
             MSG[err_lang]="Invalid language: %s (use en|zh|ru)"
             MSG[warn_musl]="System may be using musl libc"
             MSG[prompt_musl]="Switch to musl build? [y/N]: "
+            MSG[warn_glibc_musl]="System glibc %s is older than %s required by GNU Nowhere builds; using the musl binary"
+            MSG[warn_gnu_unusable]="GNU Nowhere binary cannot run on this system (%s); retrying with musl"
+            MSG[err_binary_unusable]="nowhere binary cannot run: %s"
+            MSG[warn_binary_unusable]="Installed nowhere binary cannot run (%s). Use Upgrade to install a compatible musl build."
             MSG[info_os]="OS: %s %s, Init: %s"
             MSG[info_arch]="Arch: %s, libc: %s"
             MSG[info_install_deps]="Installing dependencies: %s"
@@ -341,6 +347,10 @@ set_language() {
             MSG[err_lang]="Неверный язык: %s (en|zh|ru)"
             MSG[warn_musl]="Система, возможно, использует musl libc"
             MSG[prompt_musl]="Переключиться на сборку musl? [y/N]: "
+            MSG[warn_glibc_musl]="Системный glibc %s старше %s, требуемого GNU-сборками Nowhere; используется musl"
+            MSG[warn_gnu_unusable]="GNU-бинарник Nowhere не запускается на этой системе (%s); повтор с musl"
+            MSG[err_binary_unusable]="Бинарный файл nowhere не запускается: %s"
+            MSG[warn_binary_unusable]="Установленный nowhere не запускается (%s). Выберите обновление, чтобы поставить musl-сборку."
             MSG[info_os]="ОС: %s %s, Init: %s"
             MSG[info_arch]="Архитектура: %s, libc: %s"
             MSG[info_install_deps]="Установка зависимостей: %s"
@@ -574,6 +584,10 @@ set_language() {
             MSG[err_lang]="无效语言: %s（使用 en|zh|ru）"
             MSG[warn_musl]="检测到系统可能使用 musl libc"
             MSG[prompt_musl]="是否切换到 musl 构建版本? [y/N]: "
+            MSG[warn_glibc_musl]="系统 glibc %s 低于 GNU 构建所需的 %s，改用 musl 二进制"
+            MSG[warn_gnu_unusable]="GNU 构建无法在本机运行（%s）；改下 musl 版本"
+            MSG[err_binary_unusable]="nowhere 二进制无法运行: %s"
+            MSG[warn_binary_unusable]="已安装的 nowhere 无法运行（%s）。请选择「升级 Nowhere」安装兼容的 musl 构建。"
             MSG[info_os]="系统: %s %s, Init: %s"
             MSG[info_arch]="架构: %s, libc: %s"
             MSG[info_install_deps]="安装依赖: %s"
@@ -883,6 +897,31 @@ detect_arch() {
     log_info "$(t info_arch "$ARCH" "$LIBC")"
 }
 
+get_system_glibc_version() {
+    ldd --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+' | head -n1
+}
+
+# Compare dotted major.minor versions: success if $1 >= $2.
+version_ge_dot() {
+    local have="$1" need="$2"
+    local h1 h2 n1 n2
+    h1="${have%%.*}"
+    h2="${have#*.}"
+    h2="${h2%%.*}"
+    n1="${need%%.*}"
+    n2="${need#*.}"
+    n2="${n2%%.*}"
+    h1="${h1:-0}"
+    h2="${h2:-0}"
+    n1="${n1:-0}"
+    n2="${n2:-0}"
+    if ((10#$h1 != 10#$n1)); then
+        ((10#$h1 > 10#$n1))
+        return
+    fi
+    ((10#$h2 >= 10#$n2))
+}
+
 detect_libc_runtime() {
     if [[ "$OS_ID" == "alpine" || "$OS_ID" == "freebsd" ]]; then
         return
@@ -892,8 +931,58 @@ detect_libc_runtime() {
         read -rp "$(t prompt_musl)" use_musl
         if [[ "$use_musl" =~ ^[Yy]$ ]]; then
             LIBC="musl"
+            log_info "$(t info_arch "$ARCH" "$LIBC")"
+        fi
+        return
+    fi
+    if [[ "$LIBC" == "gnu" ]]; then
+        local glibc
+        glibc=$(get_system_glibc_version)
+        if [[ -n "$glibc" ]] && ! version_ge_dot "$glibc" "$GNU_MIN_GLIBC"; then
+            log_warn "$(t warn_glibc_musl "$glibc" "$GNU_MIN_GLIBC")"
+            LIBC="musl"
+            log_info "$(t info_arch "$ARCH" "$LIBC")"
         fi
     fi
+}
+
+binary_probe_error() {
+    local bin="$1"
+    "$bin" --version 2>&1 | head -n1
+}
+
+binary_runs() {
+    local bin="$1"
+    [[ -n "$bin" && -x "$bin" ]] || return 1
+    "$bin" --version >/dev/null 2>&1
+}
+
+# Downloads and extracts the current LIBC asset into dest. Sets FETCHED_BINARY.
+FETCHED_BINARY=""
+extract_nowhere_to() {
+    local version="$1"
+    local dest="$2"
+    local download_url asset_name
+    FETCHED_BINARY=""
+    download_url=$(get_download_url "$version")
+    asset_name=$(get_asset_name)
+
+    log_info "$(t info_download "$version" "$asset_name")"
+    if ! curl -fL --connect-timeout 15 --max-time 120 -o "${dest}/${asset_name}" "$download_url"; then
+        if [[ "$OS_ID" == "freebsd" ]]; then
+            log_error "$(t err_freebsd_asset "$version" "$asset_name")"
+        fi
+        log_error "$(t err_download "$download_url")"
+        return 1
+    fi
+
+    tar -xzf "${dest}/${asset_name}" -C "$dest"
+    FETCHED_BINARY=$(find "$dest" -name "nowhere" -type f | head -n1)
+    if [[ -z "$FETCHED_BINARY" ]]; then
+        log_error "$(t err_binary)"
+        return 1
+    fi
+    return 0
 }
 
 # ==================== Dependencies ====================
@@ -2067,30 +2156,36 @@ install_nowhere() {
         exit 1
     fi
 
-    local download_url asset_name tmp_dir binary
-    download_url=$(get_download_url "$version")
-    asset_name=$(get_asset_name)
+    local tmp_dir binary probe_err
     tmp_dir=$(mktemp -d)
 
-    log_info "$(t info_download "$version" "$asset_name")"
-    if ! curl -fL --connect-timeout 15 --max-time 120 -o "${tmp_dir}/${asset_name}" "$download_url"; then
-        if [[ "$OS_ID" == "freebsd" ]]; then
-            log_error "$(t err_freebsd_asset "$version" "$asset_name")"
-        fi
-        log_error "$(t err_download "$download_url")"
+    if ! extract_nowhere_to "$version" "$tmp_dir"; then
         rm -rf "$tmp_dir"
         exit 1
+    fi
+    binary="$FETCHED_BINARY"
+
+    if ! binary_runs "$binary"; then
+        probe_err=$(binary_probe_error "$binary")
+        if [[ "$LIBC" == "gnu" ]]; then
+            log_warn "$(t warn_gnu_unusable "${probe_err:-unknown}")"
+            LIBC="musl"
+            rm -rf "$tmp_dir"
+            tmp_dir=$(mktemp -d)
+            if ! extract_nowhere_to "$version" "$tmp_dir"; then
+                rm -rf "$tmp_dir"
+                exit 1
+            fi
+            binary="$FETCHED_BINARY"
+        fi
+        if ! binary_runs "$binary"; then
+            log_error "$(t err_binary_unusable "$(binary_probe_error "$binary")")"
+            rm -rf "$tmp_dir"
+            exit 1
+        fi
     fi
 
     log_info "$(t info_install_to "$INSTALL_DIR")"
-    tar -xzf "${tmp_dir}/${asset_name}" -C "$tmp_dir"
-
-    binary=$(find "$tmp_dir" -name "nowhere" -type f | head -n1)
-    if [[ -z "$binary" ]]; then
-        log_error "$(t err_binary)"
-        rm -rf "$tmp_dir"
-        exit 1
-    fi
 
     chmod +x "$binary"
     mv -f "$binary" "${INSTALL_DIR}/nowhere"
@@ -3392,7 +3487,12 @@ show_status() {
     echo -e "\n${CYAN}$(t status_title)${NC}"
     if command -v nowhere &>/dev/null; then
         echo -e "$(t label_binary "${GREEN}${INSTALL_DIR}/nowhere${NC}")"
-        echo -e "$(t label_version "${GREEN}$(get_installed_version)${NC}")"
+        local installed_ver
+        installed_ver=$(get_installed_version)
+        echo -e "$(t label_version "${GREEN}${installed_ver}${NC}")"
+        if [[ -z "$installed_ver" ]]; then
+            log_warn "$(t warn_binary_unusable "$(binary_probe_error "$(command -v nowhere)")")"
+        fi
     else
         echo -e "$(t label_version "${RED}$(t not_installed)${NC}")"
     fi

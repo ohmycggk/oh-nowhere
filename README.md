@@ -97,6 +97,8 @@ Supported architectures:
 * `x86_64` (`amd64` on FreeBSD)
 * `aarch64` (`arm64` on FreeBSD)
 
+Recent GNU Linux assets require **glibc 2.39** (Ubuntu 24.04 / Debian 13). Debian 12 and other hosts with an older glibc automatically install the musl build.
+
 ## Quick Start
 
 Download the script first:
