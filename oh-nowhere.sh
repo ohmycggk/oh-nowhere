@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Nowhere one-click install / upgrade / management script
-# Supports Debian/Ubuntu and Alpine Linux
+# Supports Debian/Ubuntu, Alpine Linux, and FreeBSD (Nowhere 2.0+)
 # Project: https://github.com/NodePassProject/Nowhere
 
 set -e
@@ -21,6 +21,7 @@ URL_FILE="${CONFIG_DIR}/url.conf"
 HOST_FILE="${CONFIG_DIR}/host.conf"
 NAME_FILE="${CONFIG_DIR}/name.conf"
 LAUNCHER="${INSTALL_DIR}/nowhere-launch.sh"
+RC_SCRIPT="/usr/local/etc/rc.d/nowhere"
 SERVICE_NAME="nowhere"
 GITHUB_REPO="NodePassProject/Nowhere"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
@@ -62,7 +63,11 @@ ARG_MUX=""
 ARG_SNI=""
 ARG_PIN=""
 ARG_URL=""
+ARG_MORPH=""
+ARG_TCP_PORT=""
+ARG_UDP_PORT=""
 DEFAULT_SOCKS_IN="127.0.0.1:1080"
+TARGET_VERSION=""
 
 # Language
 SCRIPT_LANG="zh"
@@ -75,9 +80,9 @@ t() {
     local msg="${MSG[$key]:-$key}"
     if [[ $# -gt 0 ]]; then
         # shellcheck disable=SC2059
-        printf "$msg" "$@"
+        printf -- "$msg" "$@"
     else
-        printf "%s" "$msg"
+        printf '%s' "$msg"
     fi
 }
 
@@ -93,7 +98,7 @@ set_language() {
         en)
             MSG[err_root]="This script must be run as root"
             MSG[err_os_unknown]="Unable to detect OS"
-            MSG[err_os_unsupported]="Only Debian/Ubuntu/Alpine are supported, detected: %s"
+            MSG[err_os_unsupported]="Only Debian/Ubuntu/Alpine/FreeBSD are supported, detected: %s"
             MSG[err_arch]="Unsupported architecture: %s"
             MSG[err_github]="Failed to fetch latest GitHub release"
             MSG[err_github_parse]="Failed to parse GitHub API response"
@@ -126,7 +131,10 @@ set_language() {
             MSG[prompt_alpn]="ALPN [%s]: "
             MSG[prompt_host]="Public hostname for share/SNI (optional) [%s]: "
             MSG[prompt_name]="Node name [%s]: "
-            MSG[prompt_net]="Network mode (mix/tcp/udp) [%s]: "
+            MSG[prompt_net]="Carrier mode (mix/tcp/udp) [%s]: "
+            MSG[prompt_morph]="Morph wire mask (0/1) [%s]: "
+            MSG[prompt_tcp_port]="TLS/TCP port [%s]: "
+            MSG[prompt_udp_port]="QUIC/UDP port [%s]: "
             MSG[prompt_tls]="TLS mode (1=self-signed, 2=custom cert) [%s]: "
             MSG[prompt_cert]="Certificate path [%s]: "
             MSG[prompt_keyfile]="Private key path [%s]: "
@@ -135,6 +143,21 @@ set_language() {
             MSG[warn_pool_removed]="pool was removed in Nowhere 1.8 (replaced by mux); ignoring --pool"
             MSG[warn_migrated_pool]="Removed deprecated pool= from %s; added mux=1 where applicable (Nowhere 1.8)"
             MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only). 1.7 adds native Portal chaining (next=); every hop must be 1.7.0+. 1.8 replaces the tcp/tcp warm pool with mux=0|1 TLS Mux (pool= removed). 1.8.3 adds mixed carrier policy: up/down accept tcp|udp|mix."
+            MSG[warn_v20_incompat]="Nowhere 2.0 is a breaking change: ALPN is fixed to nw2 (alpn= ignored), Portal net= is ignored (carriers are selected by the endpoint path), and 1.x peers cannot connect. Upgrade Portal and clients together. Use --version v1.x.x to keep a 1.x node."
+            MSG[prompt_v20_upgrade]="Cross-major upgrade/downgrade detected. Continue? [y/N]: "
+            MSG[warn_migrated_v20]="Migrated %s to Nowhere 2.0 endpoint syntax (net=/alpn= removed)"
+            MSG[warn_migrated_v1]="Migrated %s back to Nowhere 1.x URL syntax (net= restored, morph= removed)"
+            MSG[warn_split_ports_v1]="Independent TCP/UDP ports cannot be represented in Nowhere 1.x; collapsing to a single port"
+            MSG[warn_alpn_ignored]="Nowhere 2.0 uses fixed ALPN nw2; ignoring --alpn"
+            MSG[err_opt_v2_only]="%s requires Nowhere 2.0+ (use --version v2.x or a 2.x install)"
+            MSG[err_freebsd_v1]="FreeBSD packages exist only for Nowhere 2.0+; refusing to install %s"
+            MSG[err_freebsd_asset]="No FreeBSD package for %s (expected %s). FreeBSD assets require Nowhere 2.0+ and must be published on that tag"
+            MSG[err_vector_star_host]="Vector host cannot be * (use a concrete hostname or IP)"
+            MSG[err_net_port_conflict]="--net %s conflicts with the opposite --tcp-port/--udp-port"
+            MSG[err_carrier_undeclared]="Carrier policy %s/%s is not available on the declared endpoint"
+            MSG[err_invalid_port]="Invalid port: %s"
+            MSG[err_invalid_morph]="Invalid morph: %s (use 0 or 1)"
+            MSG[err_invalid_net]="Invalid carrier mode: %s (use mix|tcp|udp)"
             MSG[help_opt_next]="      --next <key@host:port>  Portal native upstream (mutually exclusive with --socks)"
             MSG[prompt_outbound_mode]="Portal outbound (none/socks/next) [%s]: "
             MSG[prompt_next]="Native upstream Portal next=<key@host:port> [%s]: "
@@ -148,7 +171,7 @@ set_language() {
             MSG[prompt_save_config]="Save this config? [Y/n]: "
             MSG[ok_config_saved]="Config saved to %s"
             MSG[prompt_install_svc]="Install/update system service? [Y/n]: "
-            MSG[warn_no_init]="systemd/openrc not detected, skipping service install"
+            MSG[warn_no_init]="systemd/openrc/rc.d not detected, skipping service install"
             MSG[ok_svc_installed]="Service installed"
             MSG[prompt_start_svc]="Start/restart service now? [Y/n]: "
             MSG[ok_svc_started]="Service started"
@@ -174,7 +197,8 @@ set_language() {
             MSG[info_share_key]="Shared key: %s"
             MSG[ok_systemd_started]="systemd service started"
             MSG[ok_openrc_started]="openrc service started"
-            MSG[warn_manual_start]="systemd/openrc not detected, start manually"
+            MSG[ok_rc_started]="FreeBSD rc.d service started"
+            MSG[warn_manual_start]="systemd/openrc/rc.d not detected, start manually"
             MSG[warn_no_config]="Config not found; install and configure Nowhere first"
             MSG[share_title]="========== Nowhere Client Share =========="
             MSG[label_qr]="QR code:"
@@ -217,6 +241,7 @@ set_language() {
             MSG[qr_ready]="QR support already available (%s)"
             MSG[qr_warn_apt]="Will install qrencode via apt. Extra disk use is usually a few MB."
             MSG[qr_warn_apk]="Alpine has no qrencode package. Will install python3 + py3-qrcode instead. This may use tens of MB of disk."
+            MSG[qr_warn_pkg]="Will install libqrencode via pkg."
             MSG[prompt_qr_confirm]="Continue install? [y/N]: "
             MSG[info_qr_installing]="Installing QR dependencies..."
             MSG[ok_qr_installed]="QR support installed. Use menu item 9 to show QR code."
@@ -247,20 +272,23 @@ set_language() {
             MSG[help_opt_url]="      --url <uri>       Import portal://, vector://, or nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <key>        Shared key"
             MSG[help_opt_port]="  -p, --port <port>      Listen port (default 2077)"
-            MSG[help_opt_alpn]="      --alpn <alpn>      Exact TLS/QUIC ALPN (default now/1, omitted when default)"
+            MSG[help_opt_alpn]="      --alpn <alpn>      1.x TLS/QUIC ALPN (default now/1); ignored on Nowhere 2.0 (fixed nw2)"
             MSG[help_opt_host]="      --host <hostname>  Public hostname for share URI / SNI"
             MSG[help_opt_name]="      --name <name>      Node name for share URI #fragment (default Nowhere-<country>-<ip octet>)"
-            MSG[help_opt_net]="      --net <mix|tcp|udp>  Network mode (default mix)"
+            MSG[help_opt_net]="      --net <mix|tcp|udp>  Carrier mode (1.x writes net=; 2.0 maps to endpoint path; default mix)"
             MSG[help_opt_tls]="      --tls <1|2>        TLS mode (default 1)"
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <path>   Key path when TLS=2"
             MSG[help_opt_socks]="      --socks <addr>    Portal outbound or Vector inbound SOCKS"
-            MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink carrier (Vector or Portal next upstream; default udp)"
-            MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink carrier (Vector or Portal next upstream; default udp)"
-            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux when a direction is tcp or mix (ignored for udp/udp; default 0)"
+            MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink carrier (default tcp on 2.x, udp on 1.x)"
+            MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink carrier (default tcp on 2.x, udp on 1.x)"
+            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux when a direction is tcp or mix (2.x omits/default 0; 1.x tcp/tcp defaults to 1)"
+            MSG[help_opt_tcp_port]="      --tcp-port <port> TLS/TCP port (Nowhere 2.0+; independent of --udp-port)"
+            MSG[help_opt_udp_port]="      --udp-port <port> QUIC/UDP port (Nowhere 2.0+; independent of --tcp-port)"
+            MSG[help_opt_morph]="      --morph <0|1>    Keyed TLS/QUIC wire mask (Nowhere 2.0+; default 0, omitted)"
             MSG[help_opt_sni]="      --sni <name>      Certificate name (Vector or Portal next upstream)"
             MSG[help_opt_pin]="      --pin <sha256>    Certificate pin (Vector or Portal next upstream)"
-            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v1.8.3)"
+            MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v2.0.0 or v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Script language (default zh)"
             MSG[prompt_type]="Service type (portal/vector) or paste nowhere:// [%s]: "
             MSG[prompt_type_hint]="Enter portal, vector, or paste a nowhere:// / vector:// / portal:// URL"
@@ -302,7 +330,7 @@ set_language() {
         ru)
             MSG[err_root]="Скрипт нужно запускать от root"
             MSG[err_os_unknown]="Не удалось определить ОС"
-            MSG[err_os_unsupported]="Поддерживаются только Debian/Ubuntu/Alpine, обнаружено: %s"
+            MSG[err_os_unsupported]="Поддерживаются только Debian/Ubuntu/Alpine/FreeBSD, обнаружено: %s"
             MSG[err_arch]="Неподдерживаемая архитектура: %s"
             MSG[err_github]="Не удалось получить последний релиз GitHub"
             MSG[err_github_parse]="Ошибка разбора ответа GitHub API"
@@ -335,7 +363,10 @@ set_language() {
             MSG[prompt_alpn]="ALPN [%s]: "
             MSG[prompt_host]="Публичное имя для share/SNI (необязательно) [%s]: "
             MSG[prompt_name]="Имя узла [%s]: "
-            MSG[prompt_net]="Сеть (mix/tcp/udp) [%s]: "
+            MSG[prompt_net]="Носитель (mix/tcp/udp) [%s]: "
+            MSG[prompt_morph]="Morph (0/1) [%s]: "
+            MSG[prompt_tcp_port]="Порт TLS/TCP [%s]: "
+            MSG[prompt_udp_port]="Порт QUIC/UDP [%s]: "
             MSG[prompt_tls]="TLS (1=самоподписанный, 2=свой сертификат) [%s]: "
             MSG[prompt_cert]="Путь к сертификату [%s]: "
             MSG[prompt_keyfile]="Путь к ключу [%s]: "
@@ -344,6 +375,21 @@ set_language() {
             MSG[warn_pool_removed]="Параметр pool удалён в Nowhere 1.8 (заменён на mux); --pool игнорируется"
             MSG[warn_migrated_pool]="Удалён устаревший pool= из %s; при необходимости добавлен mux=1 (Nowhere 1.8)"
             MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux). 1.7 добавляет цепочку Portal (next=); каждый узел должен быть 1.7.0+. 1.8 заменяет тёплый пул tcp/tcp на TLS Mux mux=0|1 (pool= удалён). 1.8.3 добавляет смешанную политику носителей: up/down принимают tcp|udp|mix."
+            MSG[warn_v20_incompat]="Nowhere 2.0 — ломающее изменение: ALPN фиксирован как nw2 (alpn= игнорируется), Portal net= игнорируется (носители задаёт путь endpoint), узлы 1.x не подключаются. Обновляйте Portal и клиенты вместе. Для узла 1.x укажите --version v1.x.x."
+            MSG[prompt_v20_upgrade]="Обнаружено изменение мажорной версии. Продолжить? [y/N]: "
+            MSG[warn_migrated_v20]="%s мигрирован на синтаксис endpoint Nowhere 2.0 (net=/alpn= удалены)"
+            MSG[warn_migrated_v1]="%s возвращён к синтаксису URL Nowhere 1.x (net= восстановлен, morph= удалён)"
+            MSG[warn_split_ports_v1]="Раздельные порты TCP/UDP нельзя выразить в Nowhere 1.x; сведены к одному порту"
+            MSG[warn_alpn_ignored]="Nowhere 2.0 использует фиксированный ALPN nw2; --alpn игнорируется"
+            MSG[err_opt_v2_only]="%s требует Nowhere 2.0+ (укажите --version v2.x или установите 2.x)"
+            MSG[err_freebsd_v1]="Пакеты FreeBSD есть только для Nowhere 2.0+; установка %s отклонена"
+            MSG[err_freebsd_asset]="Нет пакета FreeBSD для %s (ожидался %s). Пакеты FreeBSD есть только в Nowhere 2.0+, и этот tag должен содержать freebsd-архив"
+            MSG[err_vector_star_host]="Хост Vector не может быть * (укажите конкретное имя или IP)"
+            MSG[err_net_port_conflict]="--net %s конфликтует с противоположным --tcp-port/--udp-port"
+            MSG[err_carrier_undeclared]="Политика носителей %s/%s недоступна на объявленном endpoint"
+            MSG[err_invalid_port]="Неверный порт: %s"
+            MSG[err_invalid_morph]="Неверный morph: %s (0 или 1)"
+            MSG[err_invalid_net]="Неверный режим носителя: %s (mix|tcp|udp)"
             MSG[help_opt_next]="      --next <key@host:port>  Следующий Portal (next=; несовместимо с --socks)"
             MSG[prompt_outbound_mode]="Исходящий Portal (none/socks/next) [%s]: "
             MSG[prompt_next]="Следующий Portal next=<key@host:port> [%s]: "
@@ -357,7 +403,7 @@ set_language() {
             MSG[prompt_save_config]="Сохранить конфиг? [Y/n]: "
             MSG[ok_config_saved]="Конфиг сохранён в %s"
             MSG[prompt_install_svc]="Установить/обновить системную службу? [Y/n]: "
-            MSG[warn_no_init]="systemd/openrc не найдены, установка службы пропущена"
+            MSG[warn_no_init]="systemd/openrc/rc.d не найдены, установка службы пропущена"
             MSG[ok_svc_installed]="Служба установлена"
             MSG[prompt_start_svc]="Запустить/перезапустить службу сейчас? [Y/n]: "
             MSG[ok_svc_started]="Служба запущена"
@@ -383,7 +429,8 @@ set_language() {
             MSG[info_share_key]="Общий ключ: %s"
             MSG[ok_systemd_started]="Служба systemd запущена"
             MSG[ok_openrc_started]="Служба openrc запущена"
-            MSG[warn_manual_start]="systemd/openrc не найдены, запустите вручную"
+            MSG[ok_rc_started]="Служба FreeBSD rc.d запущена"
+            MSG[warn_manual_start]="systemd/openrc/rc.d не найдены, запустите вручную"
             MSG[warn_no_config]="Конфиг не найден; сначала установите и настройте Nowhere"
             MSG[share_title]="========== Поделиться клиентом Nowhere =========="
             MSG[label_qr]="QR-код:"
@@ -426,6 +473,7 @@ set_language() {
             MSG[qr_ready]="Поддержка QR уже доступна (%s)"
             MSG[qr_warn_apt]="Будет установлен qrencode через apt. Обычно занимает несколько МБ."
             MSG[qr_warn_apk]="В Alpine нет пакета qrencode. Будут установлены python3 + py3-qrcode. Может занять десятки МБ."
+            MSG[qr_warn_pkg]="Будет установлен libqrencode через pkg."
             MSG[prompt_qr_confirm]="Продолжить установку? [y/N]: "
             MSG[info_qr_installing]="Установка зависимостей QR..."
             MSG[ok_qr_installed]="Поддержка QR установлена. Пункт меню 9 покажет QR-код."
@@ -456,20 +504,23 @@ set_language() {
             MSG[help_opt_url]="      --url <uri>       Импорт portal://, vector:// или nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <ключ>       Общий ключ"
             MSG[help_opt_port]="  -p, --port <порт>      Порт (по умолчанию 2077)"
-            MSG[help_opt_alpn]="      --alpn <alpn>      Точный TLS/QUIC ALPN (по умолчанию now/1, default не пишется)"
+            MSG[help_opt_alpn]="      --alpn <alpn>      ALPN для 1.x (по умолчанию now/1); в Nowhere 2.0 игнорируется (nw2)"
             MSG[help_opt_host]="      --host <hostname>  Публичное имя для share URI / SNI"
             MSG[help_opt_name]="      --name <имя>       Имя узла для #фрагмента share URI (по умолчанию Nowhere-<страна>-<октет IP>)"
-            MSG[help_opt_net]="      --net <mix|tcp|udp>  Сеть (по умолчанию mix)"
+            MSG[help_opt_net]="      --net <mix|tcp|udp>  Носитель (1.x пишет net=; 2.0 — путь endpoint; по умолчанию mix)"
             MSG[help_opt_tls]="      --tls <1|2>        Режим TLS (по умолчанию 1)"
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <путь>   Ключ при TLS=2"
             MSG[help_opt_socks]="      --socks <addr>    Исходящий SOCKS Portal или входящий SOCKS Vector"
-            MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink (Vector или upstream Portal next; по умолчанию udp)"
-            MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink (Vector или upstream Portal next; по умолчанию udp)"
-            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux, если направление tcp или mix (игнорируется для udp/udp; по умолчанию 0)"
+            MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink (по умолчанию tcp на 2.x, udp на 1.x)"
+            MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink (по умолчанию tcp на 2.x, udp на 1.x)"
+            MSG[help_opt_mux]="      --mux <0|1>       TLS Mux, если направление tcp или mix (2.x по умолчанию 0; 1.x tcp/tcp → 1)"
+            MSG[help_opt_tcp_port]="      --tcp-port <порт> Порт TLS/TCP (Nowhere 2.0+)"
+            MSG[help_opt_udp_port]="      --udp-port <порт> Порт QUIC/UDP (Nowhere 2.0+)"
+            MSG[help_opt_morph]="      --morph <0|1>    Маскировка TLS/QUIC (Nowhere 2.0+; по умолчанию 0)"
             MSG[help_opt_sni]="      --sni <имя>       Имя сертификата (Vector или Portal next)"
             MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата (Vector или Portal next)"
-            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v1.8.3)"
+            MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v2.0.0 или v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Язык скрипта (по умолчанию zh)"
             MSG[prompt_type]="Тип службы (portal/vector) или вставьте nowhere:// [%s]: "
             MSG[prompt_type_hint]="Введите portal, vector или вставьте nowhere:// / vector:// / portal:// URL"
@@ -512,7 +563,7 @@ set_language() {
             # zh (default)
             MSG[err_root]="此脚本需要 root 权限运行"
             MSG[err_os_unknown]="无法识别系统"
-            MSG[err_os_unsupported]="仅支持 Debian/Ubuntu/Alpine，检测到: %s"
+            MSG[err_os_unsupported]="仅支持 Debian/Ubuntu/Alpine/FreeBSD，检测到: %s"
             MSG[err_arch]="不支持的架构: %s"
             MSG[err_github]="无法获取 GitHub 最新版本"
             MSG[err_github_parse]="解析 GitHub API 失败"
@@ -545,7 +596,10 @@ set_language() {
             MSG[prompt_alpn]="ALPN [%s]: "
             MSG[prompt_host]="分享/SNI 用的公网主机名（可选）[%s]: "
             MSG[prompt_name]="节点名称 [%s]: "
-            MSG[prompt_net]="网络模式 (mix/tcp/udp) [%s]: "
+            MSG[prompt_net]="载体模式 (mix/tcp/udp) [%s]: "
+            MSG[prompt_morph]="Morph 线形伪装 (0/1) [%s]: "
+            MSG[prompt_tcp_port]="TLS/TCP 端口 [%s]: "
+            MSG[prompt_udp_port]="QUIC/UDP 端口 [%s]: "
             MSG[prompt_tls]="TLS 模式 (1=自签, 2=自定义证书) [%s]: "
             MSG[prompt_cert]="证书路径 [%s]: "
             MSG[prompt_keyfile]="私钥路径 [%s]: "
@@ -554,6 +608,21 @@ set_language() {
             MSG[warn_pool_removed]="Nowhere 1.8 已移除 pool（由 mux 取代）；忽略 --pool"
             MSG[warn_migrated_pool]="已从 %s 移除废弃的 pool=，并在适用时写入 mux=1（Nowhere 1.8）"
             MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。1.7 新增 Portal 原生链式转发（next=），链路上各节点须 ≥1.7.0。1.8 以 mux=0|1 TLS Mux 取代 tcp/tcp 预热连接池（pool= 已移除）。1.8.3 新增混合载体策略：up/down 可为 tcp|udp|mix。"
+            MSG[warn_v20_incompat]="Nowhere 2.0 为破坏性变更：ALPN 固定为 nw2（忽略 alpn=），Portal 的 net= 已失效（载体由端点路径选择），1.x 节点无法互通。请一并升级 Portal 与客户端。维护 1.x 节点请使用 --version v1.x.x。"
+            MSG[prompt_v20_upgrade]="检测到跨主版本升级/降级，是否继续? [y/N]: "
+            MSG[warn_migrated_v20]="已将 %s 迁移为 Nowhere 2.0 端点语法（已移除 net=/alpn=）"
+            MSG[warn_migrated_v1]="已将 %s 还原为 Nowhere 1.x URL 语法（已恢复 net=，已移除 morph=）"
+            MSG[warn_split_ports_v1]="Nowhere 1.x 无法表达独立 TCP/UDP 端口，已折叠为单一端口"
+            MSG[warn_alpn_ignored]="Nowhere 2.0 固定 ALPN 为 nw2；忽略 --alpn"
+            MSG[err_opt_v2_only]="%s 需要 Nowhere 2.0+（请使用 --version v2.x 或安装 2.x）"
+            MSG[err_freebsd_v1]="FreeBSD 安装包仅适用于 Nowhere 2.0+；拒绝安装 %s"
+            MSG[err_freebsd_asset]="版本 %s 没有 FreeBSD 安装包（期望文件 %s）。FreeBSD 资产仅适用于 Nowhere 2.0+，且该 tag 必须已发布 freebsd 包"
+            MSG[err_vector_star_host]="Vector 主机不能为 *（请填写具体主机名或 IP）"
+            MSG[err_net_port_conflict]="--net %s 与对向的 --tcp-port/--udp-port 冲突"
+            MSG[err_carrier_undeclared]="载体策略 %s/%s 不在当前端点声明的载体内"
+            MSG[err_invalid_port]="无效端口: %s"
+            MSG[err_invalid_morph]="无效 morph: %s（使用 0 或 1）"
+            MSG[err_invalid_net]="无效载体模式: %s（使用 mix|tcp|udp）"
             MSG[help_opt_next]="      --next <key@host:port>  Portal 原生上游（与 --socks 互斥）"
             MSG[prompt_outbound_mode]="Portal 出站模式 (none/socks/next) [%s]: "
             MSG[prompt_next]="原生上游 Portal next=<key@host:port> [%s]: "
@@ -567,7 +636,7 @@ set_language() {
             MSG[prompt_save_config]="是否保存此配置? [Y/n]: "
             MSG[ok_config_saved]="配置已保存到 %s"
             MSG[prompt_install_svc]="是否安装/更新系统服务? [Y/n]: "
-            MSG[warn_no_init]="未检测到 systemd/openrc，跳过服务安装"
+            MSG[warn_no_init]="未检测到 systemd/openrc/rc.d，跳过服务安装"
             MSG[ok_svc_installed]="服务已安装"
             MSG[prompt_start_svc]="是否立即启动/重启服务? [Y/n]: "
             MSG[ok_svc_started]="服务已启动"
@@ -593,7 +662,8 @@ set_language() {
             MSG[info_share_key]="共享密钥: %s"
             MSG[ok_systemd_started]="systemd 服务已启动"
             MSG[ok_openrc_started]="openrc 服务已启动"
-            MSG[warn_manual_start]="未检测到 systemd/openrc，请手动启动"
+            MSG[ok_rc_started]="FreeBSD rc.d 服务已启动"
+            MSG[warn_manual_start]="未检测到 systemd/openrc/rc.d，请手动启动"
             MSG[warn_no_config]="未找到配置文件，请先安装并配置 Nowhere"
             MSG[share_title]="========== Nowhere 客户端分享 =========="
             MSG[label_qr]="二维码："
@@ -636,6 +706,7 @@ set_language() {
             MSG[qr_ready]="二维码支持已可用（%s）"
             MSG[qr_warn_apt]="将通过 apt 安装 qrencode，额外磁盘占用通常约数 MB。"
             MSG[qr_warn_apk]="Alpine 官方源无 qrencode，将改用 python3 + py3-qrcode，体积明显更大（可能数十 MB）。"
+            MSG[qr_warn_pkg]="将通过 pkg 安装 libqrencode。"
             MSG[prompt_qr_confirm]="是否继续安装? [y/N]: "
             MSG[info_qr_installing]="正在安装二维码依赖..."
             MSG[ok_qr_installed]="二维码支持已安装。可使用菜单项 9 显示二维码。"
@@ -666,20 +737,23 @@ set_language() {
             MSG[help_opt_url]="      --url <uri>       导入 portal://、vector:// 或 nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <密钥>       指定共享密钥"
             MSG[help_opt_port]="  -p, --port <端口>      指定监听端口 (默认 2077)"
-            MSG[help_opt_alpn]="      --alpn <alpn>      精确 TLS/QUIC ALPN (默认 now/1，默认值不写入 URL)"
+            MSG[help_opt_alpn]="      --alpn <alpn>      1.x TLS/QUIC ALPN (默认 now/1)；Nowhere 2.0 忽略（固定 nw2）"
             MSG[help_opt_host]="      --host <hostname>  分享 URI / SNI 用的公网主机名"
             MSG[help_opt_name]="      --name <名称>      节点名称，作为分享 URI 的 # 片段 (默认 Nowhere-位置-IP首段)"
-            MSG[help_opt_net]="      --net <mix|tcp|udp>  指定网络模式 (默认 mix)"
+            MSG[help_opt_net]="      --net <mix|tcp|udp>  载体模式 (1.x 写入 net=；2.0 映射为端点路径；默认 mix)"
             MSG[help_opt_tls]="      --tls <1|2>        指定 TLS 模式 (默认 1)"
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
             MSG[help_opt_keyfile]="      --keyfile <路径>   TLS=2 时的私钥路径"
             MSG[help_opt_socks]="      --socks <地址>    Portal 出站或 Vector 入站 SOCKS"
-            MSG[help_opt_up]="      --up <tcp|udp|mix>  上行载体（Vector 或 Portal next 上游；默认 udp）"
-            MSG[help_opt_down]="      --down <tcp|udp|mix>  下行载体（Vector 或 Portal next 上游；默认 udp）"
-            MSG[help_opt_mux]="      --mux <0|1>       方向为 tcp 或 mix 时使用 TLS Mux（udp/udp 忽略；默认 0）"
+            MSG[help_opt_up]="      --up <tcp|udp|mix>  上行载体（2.x 默认 tcp，1.x 默认 udp）"
+            MSG[help_opt_down]="      --down <tcp|udp|mix>  下行载体（2.x 默认 tcp，1.x 默认 udp）"
+            MSG[help_opt_mux]="      --mux <0|1>       方向为 tcp 或 mix 时使用 TLS Mux（2.x 默认省略/0；1.x 的 tcp/tcp 默认 1）"
+            MSG[help_opt_tcp_port]="      --tcp-port <端口> TLS/TCP 端口（Nowhere 2.0+，可与 UDP 不同）"
+            MSG[help_opt_udp_port]="      --udp-port <端口> QUIC/UDP 端口（Nowhere 2.0+，可与 TCP 不同）"
+            MSG[help_opt_morph]="      --morph <0|1>    TLS/QUIC 线形伪装（Nowhere 2.0+；默认 0，不写入）"
             MSG[help_opt_sni]="      --sni <名称>      证书名（Vector 或 Portal next 上游）"
             MSG[help_opt_pin]="      --pin <sha256>    证书固定（Vector 或 Portal next 上游）"
-            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v1.8.3)"
+            MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v2.0.0 或 v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  脚本语言 (默认 zh)"
             MSG[prompt_type]="服务类型 (portal/vector) 或粘贴 nowhere:// [%s]: "
             MSG[prompt_type_hint]="输入 portal、vector，或粘贴 nowhere:// / vector:// / portal:// URL"
@@ -749,6 +823,15 @@ check_root() {
 }
 
 detect_os() {
+    if [[ "$(uname -s)" == "FreeBSD" ]]; then
+        OS_ID="freebsd"
+        OS_VERSION_ID="$(uname -r)"
+        PKG_MANAGER="pkg"
+        INIT_SYSTEM="rc"
+        log_info "$(t info_os "$OS_ID" "$OS_VERSION_ID" "$INIT_SYSTEM")"
+        return
+    fi
+
     if [[ ! -f /etc/os-release ]]; then
         log_error "$(t err_os_unknown)"
         exit 1
@@ -789,7 +872,9 @@ detect_arch() {
             ;;
     esac
 
-    if [[ "$OS_ID" == "alpine" ]]; then
+    if [[ "$OS_ID" == "freebsd" ]]; then
+        LIBC="freebsd"
+    elif [[ "$OS_ID" == "alpine" ]]; then
         LIBC="musl"
     else
         LIBC="gnu"
@@ -799,7 +884,10 @@ detect_arch() {
 }
 
 detect_libc_runtime() {
-    if [[ "$OS_ID" != "alpine" ]] && ldd --version 2>/dev/null | grep -qi musl; then
+    if [[ "$OS_ID" == "alpine" || "$OS_ID" == "freebsd" ]]; then
+        return
+    fi
+    if ldd --version 2>/dev/null | grep -qi musl; then
         log_warn "$(t warn_musl)"
         read -rp "$(t prompt_musl)" use_musl
         if [[ "$use_musl" =~ ^[Yy]$ ]]; then
@@ -825,6 +913,8 @@ check_dependencies() {
             apt-get update -qq && apt-get install -y -qq curl tar
         elif [[ "$PKG_MANAGER" == "apk" ]]; then
             apk add --no-cache curl tar
+        elif [[ "$PKG_MANAGER" == "pkg" ]]; then
+            pkg install -y curl
         fi
     fi
 }
@@ -842,6 +932,9 @@ get_public_ip() {
     done
     if [[ -z "$ip" ]]; then
         ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    if [[ -z "$ip" ]]; then
+        ip=$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
     fi
     echo "$ip"
 }
@@ -938,6 +1031,103 @@ save_node_name() {
     mkdir -p "$CONFIG_DIR"
     # An empty name is kept as an empty file: no #fragment in the share URI.
     echo "$name" > "$NAME_FILE"
+}
+
+# ==================== Version profile ====================
+version_major() {
+    local v="${1#v}"
+    v="${v%%[!0-9]*}"
+    if [[ -z "$v" ]]; then
+        echo ""
+        return
+    fi
+    echo "$v"
+}
+
+config_major() {
+    if [[ -n "$ARG_VERSION" ]]; then
+        version_major "$ARG_VERSION"
+        return
+    fi
+    if [[ -n "$TARGET_VERSION" ]]; then
+        version_major "$TARGET_VERSION"
+        return
+    fi
+    case "$AUTO_MODE" in
+        install|upgrade)
+            echo 2
+            return
+            ;;
+    esac
+    local inst
+    inst=$(get_installed_version)
+    if [[ -n "$inst" ]]; then
+        version_major "$inst"
+        return
+    fi
+    echo 2
+}
+
+is_v2_profile() {
+    local major
+    major=$(config_major)
+    [[ -n "$major" && "$major" -ge 2 ]]
+}
+
+default_carrier() {
+    if is_v2_profile; then
+        echo tcp
+    else
+        echo udp
+    fi
+}
+
+validate_port_value() {
+    local port="$1"
+    if [[ ! "$port" =~ ^[1-9][0-9]{0,4}$ ]] || (( port > 65535 )); then
+        log_error "$(t err_invalid_port "$port")"
+        return 1
+    fi
+    return 0
+}
+
+validate_morph_value() {
+    case "$1" in
+        ""|0|1) return 0 ;;
+        *)
+            log_error "$(t err_invalid_morph "$1")"
+            return 1
+            ;;
+    esac
+}
+
+validate_net_value() {
+    case "$1" in
+        mix|tcp|udp) return 0 ;;
+        *)
+            log_error "$(t err_invalid_net "$1")"
+            return 1
+            ;;
+    esac
+}
+
+enforce_v2_only_options() {
+    local opt=""
+    if [[ -n "$ARG_TCP_PORT" ]]; then
+        opt="--tcp-port"
+    elif [[ -n "$ARG_UDP_PORT" ]]; then
+        opt="--udp-port"
+    elif [[ -n "$ARG_MORPH" ]]; then
+        opt="--morph"
+    fi
+    if [[ -n "$opt" ]] && ! is_v2_profile; then
+        log_error "$(t err_opt_v2_only "$opt")"
+        exit 1
+    fi
+    if is_v2_profile && [[ -n "$ARG_ALPN" ]]; then
+        log_warn "$(t warn_alpn_ignored)"
+        ARG_ALPN=""
+    fi
 }
 
 strip_query_param() {
@@ -1052,13 +1242,12 @@ mux_applies() {
 }
 
 append_mux_query() {
-    # tcp/tcp defaults to mux=1; udp/udp omits mux (canonical 0).
     local url="$1" up="$2" down="$3" mux="$4"
     if [[ "$up" == "udp" && "$down" == "udp" ]]; then
         printf '%s' "$url"
         return
     fi
-    if [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
+    if ! is_v2_profile && [[ "$up" == "tcp" && "$down" == "tcp" ]]; then
         mux="${mux:-1}"
     fi
     if [[ -n "$mux" ]]; then
@@ -1067,15 +1256,163 @@ append_mux_query() {
     printf '%s' "$url"
 }
 
+append_morph_query() {
+    local url="$1" morph="$2"
+    if is_v2_profile && [[ "$morph" == "1" ]]; then
+        url="${url}&morph=1"
+    fi
+    printf '%s' "$url"
+}
+
+format_url_host() {
+    local host="$1"
+    if [[ -z "$host" || "$host" == "*" ]]; then
+        printf '%s' "$host"
+        return
+    fi
+    if [[ "$host" == *:* && "$host" != \[* ]]; then
+        printf '[%s]' "$host"
+    else
+        printf '%s' "$host"
+    fi
+}
+
+# Sets RESOLVED_TCP RESOLVED_UDP from net/port and optional explicit ports.
+resolve_carrier_ports() {
+    local net="${1:-mix}"
+    local port="$2"
+    local tcp_port="$3"
+    local udp_port="$4"
+    RESOLVED_TCP=""
+    RESOLVED_UDP=""
+
+    if ! validate_net_value "$net"; then
+        return 1
+    fi
+    if [[ -n "$port" ]] && ! validate_port_value "$port"; then
+        return 1
+    fi
+    if [[ -n "$tcp_port" ]] && ! validate_port_value "$tcp_port"; then
+        return 1
+    fi
+    if [[ -n "$udp_port" ]] && ! validate_port_value "$udp_port"; then
+        return 1
+    fi
+
+    if [[ -n "$tcp_port" || -n "$udp_port" ]]; then
+        if [[ "$net" == "tcp" && -n "$udp_port" ]]; then
+            log_error "$(t err_net_port_conflict "$net")"
+            return 1
+        fi
+        if [[ "$net" == "udp" && -n "$tcp_port" ]]; then
+            log_error "$(t err_net_port_conflict "$net")"
+            return 1
+        fi
+        RESOLVED_TCP="$tcp_port"
+        RESOLVED_UDP="$udp_port"
+        return 0
+    fi
+
+    case "$net" in
+        tcp) RESOLVED_TCP="$port" ;;
+        udp) RESOLVED_UDP="$port" ;;
+        mix) RESOLVED_TCP="$port"; RESOLVED_UDP="$port" ;;
+    esac
+    return 0
+}
+
+validate_policy_on_endpoint() {
+    local up="$1" down="$2" tcp_port="$3" udp_port="$4"
+    if [[ "$up" == "mix" || "$down" == "mix" ]]; then
+        if [[ -z "$tcp_port" || -z "$udp_port" ]]; then
+            log_error "$(t err_carrier_undeclared "$up" "$down")"
+            return 1
+        fi
+    fi
+    if [[ "$up" == "tcp" || "$down" == "tcp" ]]; then
+        if [[ -z "$tcp_port" ]]; then
+            log_error "$(t err_carrier_undeclared "$up" "$down")"
+            return 1
+        fi
+    fi
+    if [[ "$up" == "udp" || "$down" == "udp" ]]; then
+        if [[ -z "$udp_port" ]]; then
+            log_error "$(t err_carrier_undeclared "$up" "$down")"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# role=portal|vector, host, tcp_port, udp_port → endpoint without scheme/key
+build_endpoint_hostpart() {
+    local role="$1"
+    local host="$2"
+    local tcp_port="$3"
+    local udp_port="$4"
+    local host_fmt
+
+    if [[ "$role" == "portal" ]]; then
+        if [[ -z "$host" || "$host" == "*" ]]; then
+            host="*"
+        fi
+    fi
+    host_fmt=$(format_url_host "$host")
+
+    if [[ -n "$tcp_port" && -n "$udp_port" && "$tcp_port" == "$udp_port" ]]; then
+        if [[ "$role" == "portal" && "$host" == "*" ]]; then
+            printf ':%s' "$tcp_port"
+        else
+            printf '%s:%s' "$host_fmt" "$tcp_port"
+        fi
+        return
+    fi
+    if [[ "$role" == "portal" && "$host" == "*" ]]; then
+        host_fmt="*"
+    fi
+    if [[ -n "$tcp_port" && -n "$udp_port" ]]; then
+        printf '%s/tcp:%s/udp:%s' "$host_fmt" "$tcp_port" "$udp_port"
+    elif [[ -n "$tcp_port" ]]; then
+        printf '%s/tcp:%s' "$host_fmt" "$tcp_port"
+    elif [[ -n "$udp_port" ]]; then
+        printf '%s/udp:%s' "$host_fmt" "$udp_port"
+    else
+        printf '%s' "$host_fmt"
+    fi
+}
+
+rewrite_url_endpoint() {
+    local url="$1"
+    local new_ep="$2"
+    local prefix query="" frag=""
+    if [[ "$url" == *#* ]]; then
+        frag="#${url#*#}"
+        url="${url%%#*}"
+    fi
+    if [[ "$url" == *\?* ]]; then
+        query="?${url#*\?}"
+        url="${url%%\?*}"
+    fi
+    prefix=$(echo "$url" | sed -n 's#^\([a-z]*://[^@]*@\).*#\1#p')
+    printf '%s%s%s%s' "$prefix" "$new_ep" "$query" "$frag"
+}
+
+url_has_carrier_path() {
+    echo "$1" | grep -qE '@[^?#]*/(tcp|udp)[46]?:'
+}
+
 load_portal_outbound_from_url() {
     local url="$1"
+    local dc
+    dc=$(default_carrier)
     PORTAL_SOCKS=""
     PORTAL_NEXT=""
-    PORTAL_UP="udp"
-    PORTAL_DOWN="udp"
+    PORTAL_UP="$dc"
+    PORTAL_DOWN="$dc"
     PORTAL_MUX="0"
     PORTAL_SNI=""
     PORTAL_PIN=""
+    PORTAL_MORPH=""
 
     local raw
     raw=$(get_query_param "$url" "socks")
@@ -1092,6 +1429,8 @@ load_portal_outbound_from_url() {
     [[ -n "$raw" ]] && PORTAL_SNI=$(url_decode_simple "$raw")
     raw=$(get_query_param "$url" "pin")
     [[ -n "$raw" ]] && PORTAL_PIN=$(url_decode_simple "$raw")
+    raw=$(get_query_param "$url" "morph")
+    [[ -n "$raw" ]] && PORTAL_MORPH="$raw"
 }
 
 collect_portal_outbound_interactive() {
@@ -1103,6 +1442,8 @@ collect_portal_outbound_interactive() {
     local sni="$6"
     local pin="$7"
 
+    local dc
+    dc=$(default_carrier)
     local default_socks="${socks:-proxy.example:1080}"
     local default_next="${next:-origin-key@origin.example:2077}"
     local outbound_mode
@@ -1113,8 +1454,8 @@ collect_portal_outbound_interactive() {
 
     socks=""
     next=""
-    up="${up:-udp}"
-    down="${down:-udp}"
+    up="${up:-$dc}"
+    down="${down:-$dc}"
     mux="${mux:-0}"
     sni="${sni:-}"
     pin="${pin:-}"
@@ -1177,6 +1518,39 @@ collect_portal_outbound_interactive() {
     return 0
 }
 
+prompt_v2_carrier_ports() {
+    local net="$1"
+    local port="$2"
+    local tcp_port="$3"
+    local udp_port="$4"
+    local tcp_input udp_input
+
+    case "$net" in
+        tcp)
+            tcp_port="${tcp_port:-$port}"
+            read -rp "$(t prompt_tcp_port "$tcp_port")" tcp_input
+            [[ -n "$tcp_input" ]] && tcp_port="$tcp_input"
+            udp_port=""
+            ;;
+        udp)
+            udp_port="${udp_port:-$port}"
+            read -rp "$(t prompt_udp_port "$udp_port")" udp_input
+            [[ -n "$udp_input" ]] && udp_port="$udp_input"
+            tcp_port=""
+            ;;
+        *)
+            tcp_port="${tcp_port:-$port}"
+            udp_port="${udp_port:-$port}"
+            read -rp "$(t prompt_tcp_port "$tcp_port")" tcp_input
+            [[ -n "$tcp_input" ]] && tcp_port="$tcp_input"
+            read -rp "$(t prompt_udp_port "$udp_port")" udp_input
+            [[ -n "$udp_input" ]] && udp_port="$udp_input"
+            ;;
+    esac
+    OUT_TCP_PORT="$tcp_port"
+    OUT_UDP_PORT="$udp_port"
+}
+
 detect_url_role() {
     local url="$1"
     case "$url" in
@@ -1196,22 +1570,77 @@ get_service_description() {
 }
 
 parse_url_authority() {
-    # Sets PARSE_KEY PARSE_HOST PARSE_PORT from portal://|vector://|nowhere:// URL.
+    # Sets PARSE_KEY PARSE_HOST PARSE_PORT PARSE_TCP_PORT PARSE_UDP_PORT PARSE_CARRIERS.
     local url="${1%%#*}"
+    url="${url%%\?*}"
     PARSE_KEY=""
     PARSE_HOST=""
     PARSE_PORT=""
+    PARSE_TCP_PORT=""
+    PARSE_UDP_PORT=""
+    PARSE_CARRIERS=""
     PARSE_KEY=$(echo "$url" | sed -n 's#^[a-z]*://\([^@]*\)@.*#\1#p')
-    local rest
-    rest=$(echo "$url" | sed -n 's#^[a-z]*://[^@]*@\([^/?#]*\).*#\1#p')
+    local rest path="" authority=""
+    rest=$(echo "$url" | sed -n 's#^[a-z]*://[^@]*@##p')
+
     if [[ "$rest" == \[*\]* ]]; then
         PARSE_HOST=$(echo "$rest" | sed -n 's/^\[\([^]]*\)\].*/\1/p')
-        PARSE_PORT=$(echo "$rest" | sed -n 's/^[^]]*:\([0-9][0-9]*\)$/\1/p')
-    elif [[ "$rest" == *:* ]]; then
-        PARSE_PORT="${rest##*:}"
-        PARSE_HOST="${rest%:$PARSE_PORT}"
+        local after
+        after=$(echo "$rest" | sed -n 's/^\[[^]]*\]\(.*\)/\1/p')
+        if [[ "$after" == :* ]]; then
+            PARSE_PORT="${after#:}"
+            PARSE_PORT="${PARSE_PORT%%/*}"
+            if [[ "$after" == */* ]]; then
+                path="/${after#*/}"
+            fi
+        elif [[ "$after" == /* ]]; then
+            path="$after"
+        fi
     else
-        PARSE_HOST="$rest"
+        if [[ "$rest" == */* ]]; then
+            authority="${rest%%/*}"
+            path="/${rest#*/}"
+            if [[ "$authority" == *:* ]]; then
+                PARSE_PORT="${authority##*:}"
+                PARSE_HOST="${authority%:$PARSE_PORT}"
+            else
+                PARSE_HOST="$authority"
+            fi
+        elif [[ "$rest" == *:* ]]; then
+            PARSE_PORT="${rest##*:}"
+            PARSE_HOST="${rest%:$PARSE_PORT}"
+        else
+            PARSE_HOST="$rest"
+        fi
+    fi
+
+    if [[ -n "$path" ]]; then
+        local seg name p
+        IFS='/' read -ra segs <<< "${path#/}"
+        for seg in "${segs[@]}"; do
+            [[ -z "$seg" ]] && continue
+            name="${seg%%:*}"
+            p="${seg#*:}"
+            case "$name" in
+                tcp|tcp4|tcp6) PARSE_TCP_PORT="$p" ;;
+                udp|udp4|udp6) PARSE_UDP_PORT="$p" ;;
+            esac
+        done
+    fi
+
+    if [[ -n "$PARSE_PORT" && -z "$PARSE_TCP_PORT" && -z "$PARSE_UDP_PORT" ]]; then
+        PARSE_TCP_PORT="$PARSE_PORT"
+        PARSE_UDP_PORT="$PARSE_PORT"
+        PARSE_CARRIERS="mix"
+    elif [[ -n "$PARSE_TCP_PORT" && -n "$PARSE_UDP_PORT" ]]; then
+        PARSE_CARRIERS="mix"
+        PARSE_PORT="${PARSE_PORT:-$PARSE_TCP_PORT}"
+    elif [[ -n "$PARSE_TCP_PORT" ]]; then
+        PARSE_CARRIERS="tcp"
+        PARSE_PORT="${PARSE_PORT:-$PARSE_TCP_PORT}"
+    elif [[ -n "$PARSE_UDP_PORT" ]]; then
+        PARSE_CARRIERS="udp"
+        PARSE_PORT="${PARSE_PORT:-$PARSE_UDP_PORT}"
     fi
 }
 
@@ -1230,15 +1659,35 @@ build_portal_url() {
     local mux="${12:-}"
     local sni="${13:-}"
     local pin="${14:-}"
+    local morph="${15:-}"
+    local tcp_port="${16:-}"
+    local udp_port="${17:-}"
 
     if ! validate_portal_outbound "$socks" "$next"; then
         return 1
     fi
-
-    local url="portal://${key}@:${port}?tls=${tls}&net=${net}"
-    if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
-        url="${url}&alpn=$(url_encode_alpn "$alpn")"
+    if ! validate_morph_value "$morph"; then
+        return 1
     fi
+
+    local dc hostpart url
+    dc=$(default_carrier)
+    net="${net:-mix}"
+
+    if is_v2_profile; then
+        if ! resolve_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"; then
+            return 1
+        fi
+        hostpart=$(build_endpoint_hostpart "portal" "*" "$RESOLVED_TCP" "$RESOLVED_UDP")
+        url="portal://${key}@${hostpart}?tls=${tls}"
+        url=$(append_morph_query "$url" "$morph")
+    else
+        url="portal://${key}@:${port}?tls=${tls}&net=${net}"
+        if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
+            url="${url}&alpn=$(url_encode_alpn "$alpn")"
+        fi
+    fi
+
     if [[ "$tls" == "2" ]]; then
         url="${url}&crt=${crt}&key=${keyfile}"
     fi
@@ -1246,10 +1695,15 @@ build_portal_url() {
         url="${url}&socks=$(encode_socks_endpoint "$socks")"
     fi
     if [[ -n "$next" && "$next" != "none" ]]; then
-        up="${up:-udp}"
-        down="${down:-udp}"
+        up="${up:-$dc}"
+        down="${down:-$dc}"
         if ! validate_carrier "$up" || ! validate_carrier "$down"; then
             return 1
+        fi
+        if is_v2_profile; then
+            if ! validate_policy_on_endpoint "$up" "$down" "$RESOLVED_TCP" "$RESOLVED_UDP"; then
+                return 1
+            fi
         fi
         url="${url}&next=$(encode_next_endpoint "$next")"
         url="${url}&up=${up}&down=${down}"
@@ -1275,22 +1729,53 @@ build_vector_url() {
     local mux="${8:-}"
     local sni="${9:-}"
     local pin="${10:-}"
+    local morph="${11:-}"
+    local tcp_port="${12:-}"
+    local udp_port="${13:-}"
+    local net="${14:-mix}"
 
-    up="${up:-udp}"
-    down="${down:-udp}"
+    local dc hostpart url
+    dc=$(default_carrier)
+    up="${up:-$dc}"
+    down="${down:-$dc}"
     if ! validate_carrier "$up" || ! validate_carrier "$down"; then
         return 1
     fi
-    local url="vector://${key}@${host}:${port}?up=${up}&down=${down}&socks=$(encode_socks_endpoint "$socks")"
-    url=$(append_mux_query "$url" "$up" "$down" "$mux")
+    if [[ -z "$host" || "$host" == "*" ]]; then
+        if [[ "$host" == "*" ]]; then
+            log_error "$(t err_vector_star_host)"
+        else
+            log_error "$(t err_portal_host_required)"
+        fi
+        return 1
+    fi
+    if ! validate_morph_value "$morph"; then
+        return 1
+    fi
+
+    if is_v2_profile; then
+        if ! resolve_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"; then
+            return 1
+        fi
+        if ! validate_policy_on_endpoint "$up" "$down" "$RESOLVED_TCP" "$RESOLVED_UDP"; then
+            return 1
+        fi
+        hostpart=$(build_endpoint_hostpart "vector" "$host" "$RESOLVED_TCP" "$RESOLVED_UDP")
+        url="vector://${key}@${hostpart}?up=${up}&down=${down}&socks=$(encode_socks_endpoint "$socks")"
+        url=$(append_mux_query "$url" "$up" "$down" "$mux")
+        url=$(append_morph_query "$url" "$morph")
+    else
+        url="vector://${key}@${host}:${port}?up=${up}&down=${down}&socks=$(encode_socks_endpoint "$socks")"
+        url=$(append_mux_query "$url" "$up" "$down" "$mux")
+        if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
+            url="${url}&alpn=$(url_encode_alpn "$alpn")"
+        fi
+    fi
     if [[ -n "$sni" && "$sni" != "none" ]]; then
         url="${url}&sni=${sni}"
     fi
     if [[ -n "$pin" && "$pin" != "none" ]]; then
         url="${url}&pin=${pin}"
-    fi
-    if [[ -n "$alpn" && "$alpn" != "$DEFAULT_ALPN" ]]; then
-        url="${url}&alpn=$(url_encode_alpn "$alpn")"
     fi
     echo "$url"
 }
@@ -1401,6 +1886,112 @@ migrate_stored_url() {
             save_node_name "$CONVERTED_FRAGMENT"
         fi
         log_warn "$(t warn_migrated_nowhere "$URL_FILE")"
+        url="$converted"
+    fi
+
+    if is_v2_profile; then
+        migrate_url_to_v2
+    else
+        migrate_url_to_v1
+    fi
+}
+
+migrate_url_to_v2() {
+    [[ -f "$URL_FILE" ]] || return 0
+    local url migrated=false net hostpart
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+
+    parse_url_authority "$url"
+    if echo "$url" | grep -qE '[?&]alpn='; then
+        url=$(strip_query_param "$url" "alpn")
+        migrated=true
+    fi
+    net=$(get_query_param "$url" "net")
+    if [[ "$(detect_url_role "$url")" == "portal" ]]; then
+        if [[ -n "$net" ]] && ! url_has_carrier_path "$url"; then
+            case "$net" in
+                tcp) hostpart=$(build_endpoint_hostpart "portal" "*" "$PARSE_PORT" "") ;;
+                udp) hostpart=$(build_endpoint_hostpart "portal" "*" "" "$PARSE_PORT") ;;
+                *) hostpart=$(build_endpoint_hostpart "portal" "*" "$PARSE_PORT" "$PARSE_PORT") ;;
+            esac
+            url=$(rewrite_url_endpoint "$url" "$hostpart")
+            migrated=true
+        fi
+        if [[ -n "$net" ]]; then
+            url=$(strip_query_param "$url" "net")
+            migrated=true
+        fi
+    elif [[ -n "$net" ]]; then
+        url=$(strip_query_param "$url" "net")
+        migrated=true
+    fi
+
+    if [[ "$migrated" == "true" ]]; then
+        echo "$url" > "$URL_FILE"
+        log_warn "$(t warn_migrated_v20 "$URL_FILE")"
+    fi
+}
+
+migrate_url_to_v1() {
+    [[ -f "$URL_FILE" ]] || return 0
+    local url migrated=false net hostpart port
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+
+    parse_url_authority "$url"
+    if echo "$url" | grep -qE '[?&]morph='; then
+        url=$(strip_query_param "$url" "morph")
+        migrated=true
+    fi
+    if echo "$url" | grep -qE '[?&]alpn='; then
+        url=$(strip_query_param "$url" "alpn")
+        migrated=true
+    fi
+
+    if [[ "$(detect_url_role "$url")" == "portal" ]]; then
+        net=$(get_query_param "$url" "net")
+        if url_has_carrier_path "$url"; then
+            if [[ -n "$PARSE_TCP_PORT" && -n "$PARSE_UDP_PORT" && "$PARSE_TCP_PORT" != "$PARSE_UDP_PORT" ]]; then
+                log_warn "$(t warn_split_ports_v1)"
+                port="$PARSE_TCP_PORT"
+                net="mix"
+            elif [[ -n "$PARSE_TCP_PORT" && -n "$PARSE_UDP_PORT" ]]; then
+                port="$PARSE_TCP_PORT"
+                net="mix"
+            elif [[ -n "$PARSE_TCP_PORT" ]]; then
+                port="$PARSE_TCP_PORT"
+                net="tcp"
+            else
+                port="$PARSE_UDP_PORT"
+                net="udp"
+            fi
+            hostpart=":${port}"
+            url=$(rewrite_url_endpoint "$url" "$hostpart")
+            migrated=true
+        else
+            port="${PARSE_PORT:-2077}"
+            net="${net:-mix}"
+        fi
+        if [[ -z "$(get_query_param "$url" "net")" ]]; then
+            url=$(append_query_param "$url" "net=${net:-mix}")
+            migrated=true
+        fi
+    elif [[ "$(detect_url_role "$url")" == "vector" ]] && url_has_carrier_path "$url"; then
+        if [[ -n "$PARSE_TCP_PORT" && -n "$PARSE_UDP_PORT" && "$PARSE_TCP_PORT" != "$PARSE_UDP_PORT" ]]; then
+            log_warn "$(t warn_split_ports_v1)"
+            port="$PARSE_TCP_PORT"
+        else
+            port="${PARSE_TCP_PORT:-$PARSE_UDP_PORT}"
+        fi
+        hostpart="$(format_url_host "$PARSE_HOST"):${port}"
+        url=$(rewrite_url_endpoint "$url" "$hostpart")
+        migrated=true
+    fi
+
+    if [[ "$migrated" == "true" ]]; then
+        echo "$url" > "$URL_FILE"
+        log_warn "$(t warn_migrated_v1 "$URL_FILE")"
     fi
 }
 
@@ -1435,10 +2026,17 @@ get_latest_version() {
     echo "$version"
 }
 
+get_asset_name() {
+    if [[ "$OS_ID" == "freebsd" ]]; then
+        echo "nowhere-${ARCH}-unknown-freebsd.tar.gz"
+    else
+        echo "nowhere-${ARCH}-unknown-linux-${LIBC}.tar.gz"
+    fi
+}
+
 get_download_url() {
     local version="$1"
-    local asset_name="nowhere-${ARCH}-unknown-linux-${LIBC}.tar.gz"
-    echo "https://github.com/${GITHUB_REPO}/releases/download/${version}/${asset_name}"
+    echo "https://github.com/${GITHUB_REPO}/releases/download/${version}/$(get_asset_name)"
 }
 
 get_installed_version() {
@@ -1462,14 +2060,23 @@ install_nowhere() {
             version=$(get_latest_version)
         fi
     fi
+    TARGET_VERSION="$version"
+
+    if [[ "$OS_ID" == "freebsd" ]] && [[ "$(version_major "$version")" -lt 2 ]]; then
+        log_error "$(t err_freebsd_v1 "$version")"
+        exit 1
+    fi
 
     local download_url asset_name tmp_dir binary
     download_url=$(get_download_url "$version")
-    asset_name="nowhere-${ARCH}-unknown-linux-${LIBC}.tar.gz"
+    asset_name=$(get_asset_name)
     tmp_dir=$(mktemp -d)
 
     log_info "$(t info_download "$version" "$asset_name")"
     if ! curl -fL --connect-timeout 15 --max-time 120 -o "${tmp_dir}/${asset_name}" "$download_url"; then
+        if [[ "$OS_ID" == "freebsd" ]]; then
+            log_error "$(t err_freebsd_asset "$version" "$asset_name")"
+        fi
         log_error "$(t err_download "$download_url")"
         rm -rf "$tmp_dir"
         exit 1
@@ -1493,7 +2100,9 @@ install_nowhere() {
     migrate_portal_url_for_v15
 
     if [[ "$is_upgrade" == "true" ]]; then
-        log_warn "$(t warn_v15_incompat)"
+        if [[ "$(version_major "$version")" -lt 2 ]]; then
+            log_warn "$(t warn_v15_incompat)"
+        fi
         log_success "$(t ok_upgraded "$version")"
     else
         log_success "$(t ok_installed "$version")"
@@ -1519,6 +2128,9 @@ uninstall_nowhere() {
     elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
         rm -f "/etc/init.d/${SERVICE_NAME}"
         rc-update delete ${SERVICE_NAME} default 2>/dev/null || true
+    elif [[ "$INIT_SYSTEM" == "rc" ]]; then
+        rm -f "$RC_SCRIPT"
+        sysrc -x nowhere_enable >/dev/null 2>&1 || true
     fi
 
     if [[ "$AUTO_MODE" != "uninstall" ]]; then
@@ -1535,11 +2147,11 @@ uninstall_nowhere() {
 write_launcher() {
     migrate_stored_url
     cat > "$LAUNCHER" <<'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 URL_FILE="/etc/nowhere/url.conf"
-[[ -f "$URL_FILE" ]] || { echo "错误: 未找到 ${URL_FILE}" >&2; exit 1; }
+[[ -f "$URL_FILE" ]] || { echo "error: missing ${URL_FILE}" >&2; exit 1; }
 NOWHERE_URL=$(tr -d '\n' < "$URL_FILE")
-[[ -n "$NOWHERE_URL" ]] || { echo "错误: ${URL_FILE} 为空" >&2; exit 1; }
+[[ -n "$NOWHERE_URL" ]] || { echo "error: ${URL_FILE} is empty" >&2; exit 1; }
 if [[ "$NOWHERE_URL" == nowhere://* ]]; then
     FRAG=""
     BASE="$NOWHERE_URL"
@@ -1606,24 +2218,84 @@ EOF
     rc-update add ${SERVICE_NAME} default 2>/dev/null || true
 }
 
+install_rc_service() {
+    local desc
+    desc=$(get_service_description)
+    mkdir -p "$(dirname "$RC_SCRIPT")"
+    cat > "$RC_SCRIPT" <<EOF
+#!/bin/sh
+# PROVIDE: nowhere
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="nowhere"
+rcvar="nowhere_enable"
+desc="${desc}"
+pidfile="/var/run/\${name}.pid"
+procname="/usr/local/bin/nowhere"
+command="/usr/sbin/daemon"
+command_args="-P \${pidfile} ${LAUNCHER}"
+
+load_rc_config \$name
+: \${nowhere_enable:=NO}
+
+run_rc_command "\$1"
+EOF
+    chmod 755 "$RC_SCRIPT"
+    sysrc nowhere_enable=YES >/dev/null
+}
+
+install_init_service() {
+    case "$INIT_SYSTEM" in
+        systemd) install_systemd_service ;;
+        openrc)  install_openrc_service ;;
+        rc)      install_rc_service ;;
+        *)       return 1 ;;
+    esac
+}
+
+log_service_started() {
+    case "$INIT_SYSTEM" in
+        systemd) log_success "$(t ok_systemd_started)" ;;
+        openrc)  log_success "$(t ok_openrc_started)" ;;
+        rc)      log_success "$(t ok_rc_started)" ;;
+        *)       log_warn "$(t warn_manual_start)" ;;
+    esac
+}
+
+maybe_install_and_start_service() {
+    if install_init_service; then
+        start_service
+        log_service_started
+    else
+        log_warn "$(t warn_manual_start)"
+    fi
+}
+
 start_service() {
     [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl start ${SERVICE_NAME} || true
     [[ "$INIT_SYSTEM" == "openrc" ]] && rc-service ${SERVICE_NAME} start || true
+    [[ "$INIT_SYSTEM" == "rc" ]] && service ${SERVICE_NAME} start || true
 }
 
 stop_service() {
     [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl stop ${SERVICE_NAME} 2>/dev/null || true
     [[ "$INIT_SYSTEM" == "openrc" ]] && rc-service ${SERVICE_NAME} stop 2>/dev/null || true
+    [[ "$INIT_SYSTEM" == "rc" ]] && service ${SERVICE_NAME} stop 2>/dev/null || true
 }
 
 restart_service() {
     [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl restart ${SERVICE_NAME} || true
     [[ "$INIT_SYSTEM" == "openrc" ]] && rc-service ${SERVICE_NAME} restart || true
+    [[ "$INIT_SYSTEM" == "rc" ]] && service ${SERVICE_NAME} restart || true
 }
 
 disable_service() {
     [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl disable ${SERVICE_NAME} 2>/dev/null || true
     [[ "$INIT_SYSTEM" == "openrc" ]] && rc-update delete ${SERVICE_NAME} default 2>/dev/null || true
+    [[ "$INIT_SYSTEM" == "rc" ]] && sysrc -x nowhere_enable >/dev/null 2>&1 || true
 }
 
 service_status() {
@@ -1631,6 +2303,8 @@ service_status() {
         systemctl status ${SERVICE_NAME} --no-pager 2>/dev/null || log_warn "$(t warn_svc_missing)"
     elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
         rc-service ${SERVICE_NAME} status 2>/dev/null || log_warn "$(t warn_svc_missing)"
+    elif [[ "$INIT_SYSTEM" == "rc" ]]; then
+        service ${SERVICE_NAME} status 2>/dev/null || log_warn "$(t warn_svc_missing)"
     else
         log_warn "$(t warn_svc_detect)"
     fi
@@ -1740,11 +2414,7 @@ save_and_install_config() {
     write_launcher
 
     if [[ "$auto_restart" == "true" ]]; then
-        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-            install_systemd_service
-        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
-            install_openrc_service
-        fi
+        install_init_service || log_warn "$(t warn_no_init)"
         restart_service
         log_success "$(t ok_config_updated)"
         return
@@ -1754,11 +2424,7 @@ save_and_install_config() {
 
     read -rp "$(t prompt_install_svc)" install_svc
     if [[ ! "$install_svc" =~ ^[Nn]$ ]]; then
-        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-            install_systemd_service
-        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
-            install_openrc_service
-        else
+        if ! install_init_service; then
             log_warn "$(t warn_no_init)"
             return
         fi
@@ -1841,10 +2507,13 @@ configure_nowhere() {
         fi
     fi
 
+    local dc
+    dc=$(default_carrier)
     local default_key default_port="2077" default_alpn="$DEFAULT_ALPN"
     local default_net="mix" default_tls="1"
-    local default_host="" default_socks="" default_next="" default_up="udp" default_down="udp"
-    local default_mux="0" default_sni="" default_pin=""
+    local default_host="" default_socks="" default_next="" default_up="$dc" default_down="$dc"
+    local default_mux="0" default_sni="" default_pin="" default_morph=""
+    local default_tcp_port="" default_udp_port=""
     default_key=$(generate_random_key)
     default_host=$(load_share_host)
 
@@ -1852,17 +2521,25 @@ configure_nowhere() {
         parse_url_authority "$existing_url"
         [[ -n "$PARSE_KEY" ]] && default_key="$PARSE_KEY"
         [[ -n "$PARSE_PORT" ]] && default_port="$PARSE_PORT"
+        if url_has_carrier_path "$existing_url"; then
+            default_tcp_port="$PARSE_TCP_PORT"
+            default_udp_port="$PARSE_UDP_PORT"
+            [[ -n "$PARSE_CARRIERS" ]] && default_net="$PARSE_CARRIERS"
+        fi
         if [[ "$(detect_url_role "$existing_url")" == "vector" ]]; then
             [[ -n "$PARSE_HOST" ]] && default_host="$PARSE_HOST"
-            default_up=$(get_query_param "$existing_url" "up"); default_up=${default_up:-udp}
-            default_down=$(get_query_param "$existing_url" "down"); default_down=${default_down:-udp}
+            default_up=$(get_query_param "$existing_url" "up"); default_up=${default_up:-$dc}
+            default_down=$(get_query_param "$existing_url" "down"); default_down=${default_down:-$dc}
             default_mux=$(get_query_param "$existing_url" "mux"); default_mux=${default_mux:-0}
             default_sni=$(get_query_param "$existing_url" "sni")
             default_pin=$(get_query_param "$existing_url" "pin")
+            default_morph=$(get_query_param "$existing_url" "morph")
             default_socks=$(get_query_param "$existing_url" "socks")
             default_socks=$(url_decode_simple "${default_socks:-$DEFAULT_SOCKS_IN}")
         else
-            default_net=$(get_query_param "$existing_url" "net"); default_net=${default_net:-mix}
+            local existing_net
+            existing_net=$(get_query_param "$existing_url" "net")
+            default_net="${existing_net:-${PARSE_CARRIERS:-mix}}"
             default_tls=$(get_query_param "$existing_url" "tls"); default_tls=${default_tls:-1}
             load_portal_outbound_from_url "$existing_url"
             default_socks="$PORTAL_SOCKS"
@@ -1872,6 +2549,7 @@ configure_nowhere() {
             default_mux="$PORTAL_MUX"
             default_sni="$PORTAL_SNI"
             default_pin="$PORTAL_PIN"
+            default_morph="$PORTAL_MORPH"
         fi
         local existing_alpn
         existing_alpn=$(get_query_param "$existing_url" "alpn")
@@ -1893,6 +2571,9 @@ configure_nowhere() {
     [[ -n "$ARG_MUX" ]] && default_mux="$ARG_MUX"
     [[ -n "$ARG_SNI" ]] && default_sni="$ARG_SNI"
     [[ -n "$ARG_PIN" ]] && default_pin="$ARG_PIN"
+    [[ -n "$ARG_MORPH" ]] && default_morph="$ARG_MORPH"
+    [[ -n "$ARG_TCP_PORT" ]] && default_tcp_port="$ARG_TCP_PORT"
+    [[ -n "$ARG_UDP_PORT" ]] && default_udp_port="$ARG_UDP_PORT"
 
     local default_name
     default_name=$(load_node_name)
@@ -1901,6 +2582,8 @@ configure_nowhere() {
     local net="$default_net" tls="$default_tls" host="$default_host" name="$default_name"
     local socks="$default_socks" next="$default_next" up="$default_up" down="$default_down"
     local mux="$default_mux" sni="$default_sni" pin="$default_pin"
+    local morph="$default_morph" tcp_port="$default_tcp_port" udp_port="$default_udp_port"
+    local cli_overrides="$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT"
 
     if [[ "$skip_prompts" == true ]]; then
         key="${ARG_KEY:-$default_key}"
@@ -1917,9 +2600,12 @@ configure_nowhere() {
         mux="${ARG_MUX:-$default_mux}"
         sni="${ARG_SNI:-$default_sni}"
         pin="${ARG_PIN:-$default_pin}"
+        morph="${ARG_MORPH:-$default_morph}"
+        tcp_port="${ARG_TCP_PORT:-$default_tcp_port}"
+        udp_port="${ARG_UDP_PORT:-$default_udp_port}"
         if [[ "$imported" == true && -n "$IMPORTED_URL" && -z "$ARG_KEY" ]]; then
             if [[ "$ROLE" == "vector" ]]; then
-                if [[ -z "$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT" ]]; then
+                if [[ -z "$cli_overrides" ]]; then
                     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
                     save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
                     return
@@ -1931,18 +2617,28 @@ configure_nowhere() {
                 socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "socks")")}"
                 socks="${socks:-$DEFAULT_SOCKS_IN}"
                 up="${ARG_UP:-$(get_query_param "$IMPORTED_URL" "up")}"
-                up="${up:-udp}"
+                up="${up:-$dc}"
                 down="${ARG_DOWN:-$(get_query_param "$IMPORTED_URL" "down")}"
-                down="${down:-udp}"
+                down="${down:-$dc}"
                 mux="${ARG_MUX:-$(get_query_param "$IMPORTED_URL" "mux")}"
                 sni="${ARG_SNI:-$(get_query_param "$IMPORTED_URL" "sni")}"
                 pin="${ARG_PIN:-$(get_query_param "$IMPORTED_URL" "pin")}"
+                morph="${ARG_MORPH:-$(get_query_param "$IMPORTED_URL" "morph")}"
+                if url_has_carrier_path "$IMPORTED_URL"; then
+                    tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
+                    udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
+                    net="${ARG_NET:-${PARSE_CARRIERS:-mix}}"
+                else
+                    tcp_port="${ARG_TCP_PORT:-}"
+                    udp_port="${ARG_UDP_PORT:-}"
+                    net="${ARG_NET:-mix}"
+                fi
                 local ia
                 ia=$(get_query_param "$IMPORTED_URL" "alpn")
                 [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
                 [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
             else
-                if [[ -z "$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS" ]]; then
+                if [[ -z "$cli_overrides" ]]; then
                     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
                     save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
                     return
@@ -1952,7 +2648,7 @@ configure_nowhere() {
                 key="${ARG_KEY:-$PARSE_KEY}"
                 port="${ARG_PORT:-$PARSE_PORT}"
                 net="${ARG_NET:-$(get_query_param "$IMPORTED_URL" "net")}"
-                net="${net:-mix}"
+                net="${net:-${PARSE_CARRIERS:-mix}}"
                 tls="${ARG_TLS:-$(get_query_param "$IMPORTED_URL" "tls")}"
                 tls="${tls:-1}"
                 socks="${ARG_SOCKS:-$PORTAL_SOCKS}"
@@ -1962,6 +2658,14 @@ configure_nowhere() {
                 mux="${ARG_MUX:-$PORTAL_MUX}"
                 sni="${ARG_SNI:-$PORTAL_SNI}"
                 pin="${ARG_PIN:-$PORTAL_PIN}"
+                morph="${ARG_MORPH:-$PORTAL_MORPH}"
+                if url_has_carrier_path "$IMPORTED_URL"; then
+                    tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
+                    udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
+                else
+                    tcp_port="${ARG_TCP_PORT:-}"
+                    udp_port="${ARG_UDP_PORT:-}"
+                fi
                 local ia
                 ia=$(get_query_param "$IMPORTED_URL" "alpn")
                 [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
@@ -1988,6 +2692,14 @@ configure_nowhere() {
 
             read -rp "$(t prompt_port "$port")" port_input
             [[ -n "$port_input" ]] && port="$port_input"
+
+            if is_v2_profile; then
+                read -rp "$(t prompt_net "$net")" net_input
+                [[ -n "$net_input" ]] && net="$net_input"
+                prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
+                tcp_port="$OUT_TCP_PORT"
+                udp_port="$OUT_UDP_PORT"
+            fi
 
             read -rp "$(t prompt_up "$up")" up_input
             [[ -n "$up_input" ]] && up="$up_input"
@@ -2020,8 +2732,13 @@ configure_nowhere() {
                 pin="$pin_input"
             fi
 
-            read -rp "$(t prompt_alpn "$alpn")" alpn_input
-            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            if is_v2_profile; then
+                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                [[ -n "$morph_input" ]] && morph="$morph_input"
+            else
+                read -rp "$(t prompt_alpn "$alpn")" alpn_input
+                [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            fi
 
             read -rp "$(t prompt_name "$name")" name_input
             if [[ "$name_input" == "-" ]]; then
@@ -2041,7 +2758,7 @@ configure_nowhere() {
             return 1
         fi
 
-        url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin")
+        url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
     else
         log_info "$(t info_configure_portal)"
         if [[ "$skip_prompts" == false ]]; then
@@ -2056,11 +2773,22 @@ configure_nowhere() {
             read -rp "$(t prompt_net "$net")" net_input
             [[ -n "$net_input" ]] && net="$net_input"
 
+            if is_v2_profile; then
+                prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
+                tcp_port="$OUT_TCP_PORT"
+                udp_port="$OUT_UDP_PORT"
+            fi
+
             read -rp "$(t prompt_tls "$tls")" tls_input
             [[ -n "$tls_input" ]] && tls="$tls_input"
 
-            read -rp "$(t prompt_alpn "$alpn")" alpn_input
-            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            if is_v2_profile; then
+                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                [[ -n "$morph_input" ]] && morph="$morph_input"
+            else
+                read -rp "$(t prompt_alpn "$alpn")" alpn_input
+                [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            fi
 
             read -rp "$(t prompt_host "$host")" host_input
             if [[ "$host_input" == "-" ]]; then
@@ -2104,7 +2832,7 @@ configure_nowhere() {
             fi
         fi
 
-        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin") || return 1
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
     fi
 
     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${url}${NC}\n"
@@ -2151,6 +2879,20 @@ upgrade_nowhere() {
         fi
     fi
 
+    if [[ -n "$installed_version" ]]; then
+        local old_major new_major
+        old_major=$(version_major "$installed_version")
+        new_major=$(version_major "$latest_version")
+        if [[ -n "$old_major" && -n "$new_major" && "$old_major" != "$new_major" ]]; then
+            log_warn "$(t warn_v20_incompat)"
+            if [[ "$AUTO_MODE" != "upgrade" && "$AUTO_MODE" != "install" ]]; then
+                local confirm=""
+                read -rp "$(t prompt_v20_upgrade)" confirm
+                [[ "$confirm" =~ ^[Yy]$ ]] || { log_info "$(t info_cancelled)"; return; }
+            fi
+        fi
+    fi
+
     if command -v nowhere &>/dev/null; then
         cp "${INSTALL_DIR}/nowhere" "${INSTALL_DIR}/nowhere.bak.$(date +%Y%m%d_%H%M%S)"
     fi
@@ -2159,6 +2901,8 @@ upgrade_nowhere() {
     if [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl is-active --quiet ${SERVICE_NAME} 2>/dev/null; then
         was_running=true; stop_service
     elif [[ "$INIT_SYSTEM" == "openrc" ]] && rc-service ${SERVICE_NAME} status 2>/dev/null | grep -q started; then
+        was_running=true; stop_service
+    elif [[ "$INIT_SYSTEM" == "rc" ]] && service ${SERVICE_NAME} status >/dev/null 2>&1; then
         was_running=true; stop_service
     fi
 
@@ -2197,34 +2941,45 @@ auto_install_nowhere() {
             host="$PARSE_HOST"
             [[ -n "$ARG_HOST" ]] && host="$ARG_HOST"
             # Rebuild if CLI overrides present.
-            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN" ]]; then
-                local key="${ARG_KEY:-$PARSE_KEY}"
-                local port="${ARG_PORT:-$PARSE_PORT}"
-                local socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$url" "socks")")}"
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_NET" ]]; then
+                local dc key port socks up down mux sni pin alpn morph tcp_port udp_port net ia
+                dc=$(default_carrier)
+                key="${ARG_KEY:-$PARSE_KEY}"
+                port="${ARG_PORT:-$PARSE_PORT}"
+                socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$url" "socks")")}"
                 socks="${socks:-$DEFAULT_SOCKS_IN}"
-                local up="${ARG_UP:-$(get_query_param "$url" "up")}"
-                up="${up:-udp}"
-                local down="${ARG_DOWN:-$(get_query_param "$url" "down")}"
-                down="${down:-udp}"
-                local mux="${ARG_MUX:-$(get_query_param "$url" "mux")}"
-                local sni="${ARG_SNI:-$(get_query_param "$url" "sni")}"
-                local pin="${ARG_PIN:-$(get_query_param "$url" "pin")}"
-                local alpn="$DEFAULT_ALPN"
-                local ia
+                up="${ARG_UP:-$(get_query_param "$url" "up")}"
+                up="${up:-$dc}"
+                down="${ARG_DOWN:-$(get_query_param "$url" "down")}"
+                down="${down:-$dc}"
+                mux="${ARG_MUX:-$(get_query_param "$url" "mux")}"
+                sni="${ARG_SNI:-$(get_query_param "$url" "sni")}"
+                pin="${ARG_PIN:-$(get_query_param "$url" "pin")}"
+                morph="${ARG_MORPH:-$(get_query_param "$url" "morph")}"
+                alpn="$DEFAULT_ALPN"
                 ia=$(get_query_param "$url" "alpn")
                 [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
                 [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
                 host="${ARG_HOST:-$PARSE_HOST}"
-                url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin")
+                if url_has_carrier_path "$url"; then
+                    tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
+                    udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
+                    net="${ARG_NET:-${PARSE_CARRIERS:-mix}}"
+                else
+                    tcp_port="${ARG_TCP_PORT:-}"
+                    udp_port="${ARG_UDP_PORT:-}"
+                    net="${ARG_NET:-mix}"
+                fi
+                url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
             fi
         else
             host="${ARG_HOST:-}"
-            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_NET$ARG_TLS" ]]; then
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT" ]]; then
                 load_portal_outbound_from_url "$url"
                 local key="${ARG_KEY:-$PARSE_KEY}"
                 local port="${ARG_PORT:-$PARSE_PORT}"
                 local net="${ARG_NET:-$(get_query_param "$url" "net")}"
-                net="${net:-mix}"
+                net="${net:-${PARSE_CARRIERS:-mix}}"
                 local tls="${ARG_TLS:-$(get_query_param "$url" "tls")}"
                 tls="${tls:-1}"
                 local socks="${ARG_SOCKS:-$PORTAL_SOCKS}"
@@ -2234,6 +2989,15 @@ auto_install_nowhere() {
                 local mux="${ARG_MUX:-$PORTAL_MUX}"
                 local sni="${ARG_SNI:-$PORTAL_SNI}"
                 local pin="${ARG_PIN:-$PORTAL_PIN}"
+                local morph="${ARG_MORPH:-$PORTAL_MORPH}"
+                local tcp_port udp_port
+                if url_has_carrier_path "$url"; then
+                    tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
+                    udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
+                else
+                    tcp_port="${ARG_TCP_PORT:-}"
+                    udp_port="${ARG_UDP_PORT:-}"
+                fi
                 local alpn="$DEFAULT_ALPN"
                 local ia
                 ia=$(get_query_param "$url" "alpn")
@@ -2246,7 +3010,7 @@ auto_install_nowhere() {
                     keyfile="${ARG_KEYFILE:-$(get_query_param "$url" "key")}"
                     keyfile="${keyfile:-/etc/nowhere/key.pem}"
                 fi
-                url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin") || return 1
+                url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
             fi
         fi
         echo "$url" > "$URL_FILE"
@@ -2255,17 +3019,7 @@ auto_install_nowhere() {
         write_launcher
         log_success "$(t ok_config_written "$URL_FILE")"
         echo -e "${CYAN}$(t label_run_url "${GREEN}${url}${NC}")${NC}"
-        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-            install_systemd_service
-            start_service
-            log_success "$(t ok_systemd_started)"
-        elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
-            install_openrc_service
-            start_service
-            log_success "$(t ok_openrc_started)"
-        else
-            log_warn "$(t warn_manual_start)"
-        fi
+        maybe_install_and_start_service
         return
     fi
 
@@ -2281,7 +3035,8 @@ auto_install_nowhere() {
     log_info "$(t info_gen_config)"
     mkdir -p "$CONFIG_DIR"
 
-    local key port alpn net tls host name url socks next up down mux sni pin
+    local dc key port alpn net tls host name url socks next up down mux sni pin morph tcp_port udp_port
+    dc=$(default_carrier)
     port=${ARG_PORT:-2077}
     alpn=${ARG_ALPN:-$DEFAULT_ALPN}
     net=${ARG_NET:-mix}
@@ -2290,11 +3045,14 @@ auto_install_nowhere() {
     name=$(load_node_name)
     socks=${ARG_SOCKS:-}
     next=${ARG_NEXT:-}
-    up=${ARG_UP:-udp}
-    down=${ARG_DOWN:-udp}
+    up=${ARG_UP:-$dc}
+    down=${ARG_DOWN:-$dc}
     mux=${ARG_MUX:-}
     sni=${ARG_SNI:-}
     pin=${ARG_PIN:-}
+    morph=${ARG_MORPH:-}
+    tcp_port=${ARG_TCP_PORT:-}
+    udp_port=${ARG_UDP_PORT:-}
 
     if [[ -n "$ARG_KEY" ]]; then
         key="$ARG_KEY"
@@ -2316,6 +3074,14 @@ auto_install_nowhere() {
             read -rp "$(t prompt_port "$port")" port_input
             [[ -n "$port_input" ]] && port="$port_input"
 
+            if is_v2_profile; then
+                read -rp "$(t prompt_net "$net")" net_input
+                [[ -n "$net_input" ]] && net="$net_input"
+                prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
+                tcp_port="$OUT_TCP_PORT"
+                udp_port="$OUT_UDP_PORT"
+            fi
+
             read -rp "$(t prompt_up "$up")" up_input
             [[ -n "$up_input" ]] && up="$up_input"
 
@@ -2335,8 +3101,13 @@ auto_install_nowhere() {
             read -rp "$(t prompt_sni "$sni")" sni_input
             [[ -n "$sni_input" ]] && sni="$sni_input"
 
-            read -rp "$(t prompt_alpn "$alpn")" alpn_input
-            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            if is_v2_profile; then
+                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                [[ -n "$morph_input" ]] && morph="$morph_input"
+            else
+                read -rp "$(t prompt_alpn "$alpn")" alpn_input
+                [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            fi
 
             read -rp "$(t prompt_name "$name")" name_input
             if [[ "$name_input" == "-" ]]; then
@@ -2349,7 +3120,7 @@ auto_install_nowhere() {
             log_error "$(t err_portal_host_required)"
             return 1
         fi
-        url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin")
+        url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
     else
         if [[ -t 0 && -z "$ARG_KEY" ]]; then
             echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
@@ -2363,11 +3134,22 @@ auto_install_nowhere() {
             read -rp "$(t prompt_net "$net")" net_input
             [[ -n "$net_input" ]] && net="$net_input"
 
+            if is_v2_profile; then
+                prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
+                tcp_port="$OUT_TCP_PORT"
+                udp_port="$OUT_UDP_PORT"
+            fi
+
             read -rp "$(t prompt_tls "$tls")" tls_input
             [[ -n "$tls_input" ]] && tls="$tls_input"
 
-            read -rp "$(t prompt_alpn "$alpn")" alpn_input
-            [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            if is_v2_profile; then
+                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                [[ -n "$morph_input" ]] && morph="$morph_input"
+            else
+                read -rp "$(t prompt_alpn "$alpn")" alpn_input
+                [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+            fi
 
             read -rp "$(t prompt_host "$host")" host_input
             if [[ "$host_input" == "-" ]]; then
@@ -2409,7 +3191,7 @@ auto_install_nowhere() {
             fi
         fi
 
-        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin") || return 1
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
     fi
 
     echo "$url" > "$URL_FILE"
@@ -2419,18 +3201,7 @@ auto_install_nowhere() {
     log_success "$(t ok_config_written "$URL_FILE")"
     echo -e "${CYAN}$(t label_run_url "${GREEN}${url}${NC}")${NC}"
     log_info "$(t info_share_key "${GREEN}${key}${NC}")"
-
-    if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-        install_systemd_service
-        start_service
-        log_success "$(t ok_systemd_started)"
-    elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
-        install_openrc_service
-        start_service
-        log_success "$(t ok_openrc_started)"
-    else
-        log_warn "$(t warn_manual_start)"
-    fi
+    maybe_install_and_start_service
 }
 
 # ==================== Share URI ====================
@@ -2461,8 +3232,11 @@ show_share_uri() {
 
     tls_mode=$(get_query_param "$server_url" "tls")
     tls_mode=${tls_mode:-1}
+    local morph_mode
+    morph_mode=$(get_query_param "$server_url" "morph")
+    local net_mode
     net_mode=$(get_query_param "$server_url" "net")
-    net_mode=${net_mode:-mix}
+    net_mode="${net_mode:-${PARSE_CARRIERS:-mix}}"
     alpn_raw=$(get_query_param "$server_url" "alpn")
 
     if [[ -n "$(get_query_param "$server_url" "next")" ]]; then
@@ -2479,24 +3253,33 @@ show_share_uri() {
 
     node_name=$(load_node_name)
 
-    client_uri="nowhere://${key}@${share_host}:${port}"
+    if is_v2_profile && { [[ -n "$PARSE_TCP_PORT" && -n "$PARSE_UDP_PORT" && "$PARSE_TCP_PORT" != "$PARSE_UDP_PORT" ]] || url_has_carrier_path "$server_url"; }; then
+        client_uri="nowhere://${key}@$(build_endpoint_hostpart "vector" "$share_host" "$PARSE_TCP_PORT" "$PARSE_UDP_PORT")"
+    else
+        client_uri="nowhere://${key}@${share_host}:${port}"
+    fi
 
     case "$net_mode" in
         tcp)
             client_uri=$(append_query_param "$client_uri" "up=tcp")
             client_uri=$(append_query_param "$client_uri" "down=tcp")
-            client_uri=$(append_query_param "$client_uri" "mux=1")
+            if ! is_v2_profile; then
+                client_uri=$(append_query_param "$client_uri" "mux=1")
+            fi
             ;;
         udp)
             client_uri=$(append_query_param "$client_uri" "up=udp")
             client_uri=$(append_query_param "$client_uri" "down=udp")
             ;;
         *)
-            # mix / default: mixed carrier policy (Nowhere 1.8.3)
             client_uri=$(append_query_param "$client_uri" "up=mix")
             client_uri=$(append_query_param "$client_uri" "down=mix")
             ;;
     esac
+
+    if [[ "$morph_mode" == "1" ]]; then
+        client_uri=$(append_query_param "$client_uri" "morph=1")
+    fi
 
     if [[ "$tls_mode" == "2" ]]; then
         local stored_host
@@ -2508,7 +3291,7 @@ show_share_uri() {
         fi
     fi
 
-    if [[ -n "$alpn_raw" ]]; then
+    if [[ -n "$alpn_raw" ]] && ! is_v2_profile; then
         local decoded_alpn
         decoded_alpn=$(url_decode_simple "$alpn_raw")
         if [[ -n "$decoded_alpn" && "$decoded_alpn" != "$DEFAULT_ALPN" ]]; then
@@ -2553,6 +3336,8 @@ install_qr_support() {
         log_warn "$(t qr_warn_apt)"
     elif [[ "$PKG_MANAGER" == "apk" ]]; then
         log_warn "$(t qr_warn_apk)"
+    elif [[ "$PKG_MANAGER" == "pkg" ]]; then
+        log_warn "$(t qr_warn_pkg)"
     else
         log_error "$(t err_qr_install)"
         return 1
@@ -2568,8 +3353,10 @@ install_qr_support() {
     set +e
     if [[ "$PKG_MANAGER" == "apt" ]]; then
         apt-get update -qq && apt-get install -y qrencode
-    else
+    elif [[ "$PKG_MANAGER" == "apk" ]]; then
         apk add --no-cache python3 py3-qrcode
+    else
+        pkg install -y libqrencode
     fi
     local rc=$?
     set -e
@@ -2817,6 +3604,9 @@ $(t help_opt_next)
 $(t help_opt_up)
 $(t help_opt_down)
 $(t help_opt_mux)
+$(t help_opt_tcp_port)
+$(t help_opt_udp_port)
+$(t help_opt_morph)
 $(t help_opt_sni)
 $(t help_opt_pin)
 $(t help_opt_version)
@@ -2830,11 +3620,13 @@ $(t help_examples)
   bash oh-nowhere.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
   bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --socks 127.0.0.1:1080
   bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --up mix --down mix --socks 127.0.0.1:1080
+  bash oh-nowhere.sh --install --tcp-port 2006 --udp-port 2017 --morph 1 --key mysecret
   bash oh-nowhere.sh --install --type portal --key relay-key --next 'origin-key@origin.example:2077' --up udp --down udp
   bash oh-nowhere.sh --config --url 'nowhere://mysecret@relay.example:2077?up=tcp&down=tcp'
   bash oh-nowhere.sh -l en --status
   bash oh-nowhere.sh --tui
   bash oh-nowhere.sh --upgrade-script --lang en
+  bash oh-nowhere.sh --version v2.0.0 --install --key mysecret
   bash oh-nowhere.sh --version v1.8.3 --install --key mysecret
 EOF
 }
@@ -2883,6 +3675,27 @@ parse_args() {
                 shift
                 ;;
             --mux)              ARG_MUX="$2"; shift ;;
+            --tcp-port)
+                ARG_TCP_PORT="$2"
+                if ! validate_port_value "$ARG_TCP_PORT"; then
+                    exit 1
+                fi
+                shift
+                ;;
+            --udp-port)
+                ARG_UDP_PORT="$2"
+                if ! validate_port_value "$ARG_UDP_PORT"; then
+                    exit 1
+                fi
+                shift
+                ;;
+            --morph)
+                ARG_MORPH="$2"
+                if ! validate_morph_value "$ARG_MORPH"; then
+                    exit 1
+                fi
+                shift
+                ;;
             --pool)
                 # Kept for automation compatibility; Nowhere 1.8 replaced pool with mux.
                 log_warn "$(t warn_pool_removed)"
@@ -2899,7 +3712,17 @@ parse_args() {
                     shift
                 fi
                 ;;
-            --net)              ARG_NET="$2"; shift ;;
+            --net)
+                ARG_NET="$2"
+                case "$ARG_NET" in
+                    mix|tcp|udp) ;;
+                    *)
+                        log_error "$(t err_invalid_net "$ARG_NET")"
+                        exit 1
+                        ;;
+                esac
+                shift
+                ;;
             --tls)              ARG_TLS="$2"; shift ;;
             --cert)             ARG_CERT="$2"; shift ;;
             --keyfile)          ARG_KEYFILE="$2"; shift ;;
@@ -2942,6 +3765,7 @@ main() {
     detect_arch
     detect_libc_runtime
     check_dependencies
+    enforce_v2_only_options
 
     case "$AUTO_MODE" in
         install)    auto_install_nowhere ;;
