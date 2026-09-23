@@ -223,22 +223,59 @@ set_language() {
             MSG[menu_version]="  Version:  %s"
             MSG[menu_system]="  OS:       %s %s"
             MSG[menu_arch]="  Arch:     %s/%s"
-            MSG[menu_1]="One-click install"
-            MSG[menu_2]="Upgrade Nowhere"
-            MSG[menu_3]="Configure service"
-            MSG[menu_4]="Start service"
-            MSG[menu_5]="Stop service"
-            MSG[menu_6]="Restart service"
-            MSG[menu_7]="Show status"
-            MSG[menu_8]="Uninstall Nowhere"
-            MSG[menu_9]="Show share URI"
-            MSG[menu_10]="Install QR code support"
-            MSG[menu_11]="Change language"
-            MSG[menu_12]="Install specific version"
-            MSG[menu_13]="Launch Nowhere TUI"
-            MSG[menu_14]="Upgrade oh-nowhere script"
-            MSG[menu_0]="Exit"
-            MSG[prompt_menu]="Enter option [0-14]: "
+            MSG[menu_install]="One-click install"
+            MSG[menu_upgrade]="Upgrade Nowhere"
+            MSG[menu_pin_version]="Install specific version"
+            MSG[menu_configure]="Configure service"
+            MSG[menu_modify]="Modify current configuration"
+            MSG[menu_start]="Start service"
+            MSG[menu_stop]="Stop service"
+            MSG[menu_restart]="Restart service"
+            MSG[menu_status]="Show status"
+            MSG[menu_tui]="Launch Nowhere TUI"
+            MSG[menu_share]="Show share URI"
+            MSG[menu_qr]="Install QR code support"
+            MSG[menu_lang]="Change language"
+            MSG[menu_upgrade_script]="Upgrade oh-nowhere script"
+            MSG[menu_uninstall]="Uninstall Nowhere"
+            MSG[menu_exit]="Exit"
+            MSG[menu_service]="Service: %s"
+            MSG[menu_svc_running]="running"
+            MSG[menu_svc_stopped]="stopped"
+            MSG[menu_svc_not_installed]="not installed"
+            MSG[modify_title]="Modify Nowhere configuration (role: %s)"
+            MSG[modify_hint]="Enter a field number to edit; empty or q saves and applies."
+            MSG[prompt_modify_choice]="Field to edit [1-%s] (empty/q = apply): "
+            MSG[modify_none]="-"
+            MSG[modify_new_url]="New run URL: %s"
+            MSG[info_configure_first]="No existing configuration; run one-click install or interactive configuration first."
+            MSG[err_invalid_tls]="Invalid TLS mode %s (expected 0, 1, or 2)"
+            MSG[err_invalid_mux]="Invalid mux value %s (expected 0 or 1)"
+            MSG[warn_port_in_use]="Port %s is already in use"
+            MSG[prompt_port_conflict]="Use port %s anyway? [y/N]: "
+            MSG[info_port_unchanged]="Keeping current port %s"
+            MSG[err_port_in_use]="Port %s is in use; enter a different port"
+            MSG[mf_key]="Key"
+            MSG[mf_port]="Port"
+            MSG[mf_net]="Carrier (net)"
+            MSG[mf_tcp_port]="TCP port"
+            MSG[mf_udp_port]="UDP port"
+            MSG[mf_tls]="TLS mode"
+            MSG[mf_cert]="Cert file"
+            MSG[mf_keyfile]="Private key file"
+            MSG[mf_alpn]="ALPN"
+            MSG[mf_morph]="Morph"
+            MSG[mf_up]="Up carrier"
+            MSG[mf_down]="Down carrier"
+            MSG[mf_mux]="Mux"
+            MSG[mf_socks]="SOCKS"
+            MSG[mf_next]="Next hop"
+            MSG[mf_sni]="SNI"
+            MSG[mf_pin]="SPKI pin"
+            MSG[mf_outbound]="Outbound mode"
+            MSG[mf_share_host]="Share host"
+            MSG[mf_name]="Node name"
+            MSG[prompt_menu]="Enter option [0-%s]: "
             MSG[ok_start_sent]="Start command sent"
             MSG[ok_stop_sent]="Stop command sent"
             MSG[ok_restart_sent]="Restart command sent"
@@ -250,7 +287,7 @@ set_language() {
             MSG[qr_warn_pkg]="Will install libqrencode via pkg."
             MSG[prompt_qr_confirm]="Continue install? [y/N]: "
             MSG[info_qr_installing]="Installing QR dependencies..."
-            MSG[ok_qr_installed]="QR support installed. Use menu item 9 to show QR code."
+            MSG[ok_qr_installed]="QR support installed. Use \"%s\" to show the QR code."
             MSG[err_qr_install]="Failed to install QR dependencies"
             MSG[info_target_version]="Target version: %s"
             MSG[prompt_version]="Enter version (e.g. v1.2.3): "
@@ -459,22 +496,59 @@ set_language() {
             MSG[menu_version]="  Версия:   %s"
             MSG[menu_system]="  ОС:       %s %s"
             MSG[menu_arch]="  Arch:     %s/%s"
-            MSG[menu_1]="Однократная установка"
-            MSG[menu_2]="Обновить Nowhere"
-            MSG[menu_3]="Настроить службу"
-            MSG[menu_4]="Запустить службу"
-            MSG[menu_5]="Остановить службу"
-            MSG[menu_6]="Перезапустить службу"
-            MSG[menu_7]="Показать статус"
-            MSG[menu_8]="Удалить Nowhere"
-            MSG[menu_9]="Показать URI для шаринга"
-            MSG[menu_10]="Установить поддержку QR"
-            MSG[menu_11]="Сменить язык"
-            MSG[menu_12]="Установить указанную версию"
-            MSG[menu_13]="Запустить Nowhere TUI"
-            MSG[menu_14]="Обновить скрипт oh-nowhere"
-            MSG[menu_0]="Выход"
-            MSG[prompt_menu]="Введите пункт [0-14]: "
+            MSG[menu_install]="Однократная установка"
+            MSG[menu_upgrade]="Обновить Nowhere"
+            MSG[menu_pin_version]="Установить указанную версию"
+            MSG[menu_configure]="Настроить службу"
+            MSG[menu_modify]="Изменить текущую конфигурацию"
+            MSG[menu_start]="Запустить службу"
+            MSG[menu_stop]="Остановить службу"
+            MSG[menu_restart]="Перезапустить службу"
+            MSG[menu_status]="Показать статус"
+            MSG[menu_tui]="Запустить Nowhere TUI"
+            MSG[menu_share]="Показать URI для шаринга"
+            MSG[menu_qr]="Установить поддержку QR"
+            MSG[menu_lang]="Сменить язык"
+            MSG[menu_upgrade_script]="Обновить скрипт oh-nowhere"
+            MSG[menu_uninstall]="Удалить Nowhere"
+            MSG[menu_exit]="Выход"
+            MSG[menu_service]="Служба: %s"
+            MSG[menu_svc_running]="работает"
+            MSG[menu_svc_stopped]="остановлена"
+            MSG[menu_svc_not_installed]="не установлена"
+            MSG[modify_title]="Изменение конфигурации Nowhere (роль: %s)"
+            MSG[modify_hint]="Введите номер поля для изменения; пусто или q — сохранить и применить."
+            MSG[prompt_modify_choice]="Поле для изменения [1-%s] (пусто/q — применить): "
+            MSG[modify_none]="-"
+            MSG[modify_new_url]="Новый URL запуска: %s"
+            MSG[info_configure_first]="Существующая конфигурация не найдена; сначала выполните установку в один клик или интерактивную настройку."
+            MSG[err_invalid_tls]="Неверный режим TLS %s (ожидалось 0, 1 или 2)"
+            MSG[err_invalid_mux]="Неверное значение mux %s (ожидалось 0 или 1)"
+            MSG[warn_port_in_use]="Порт %s уже занят"
+            MSG[prompt_port_conflict]="Всё равно использовать порт %s? [y/N]: "
+            MSG[info_port_unchanged]="Текущий порт %s сохранён"
+            MSG[err_port_in_use]="Порт %s занят; введите другой порт"
+            MSG[mf_key]="Ключ"
+            MSG[mf_port]="Порт"
+            MSG[mf_net]="Носитель (net)"
+            MSG[mf_tcp_port]="Порт TCP"
+            MSG[mf_udp_port]="Порт UDP"
+            MSG[mf_tls]="Режим TLS"
+            MSG[mf_cert]="Файл сертификата"
+            MSG[mf_keyfile]="Файл закрытого ключа"
+            MSG[mf_alpn]="ALPN"
+            MSG[mf_morph]="Morph"
+            MSG[mf_up]="Носитель up"
+            MSG[mf_down]="Носитель down"
+            MSG[mf_mux]="Mux"
+            MSG[mf_socks]="SOCKS"
+            MSG[mf_next]="Следующий узел"
+            MSG[mf_sni]="SNI"
+            MSG[mf_pin]="SPKI pin"
+            MSG[mf_outbound]="Исходящий режим"
+            MSG[mf_share_host]="Адрес для шаринга"
+            MSG[mf_name]="Имя узла"
+            MSG[prompt_menu]="Введите пункт [0-%s]: "
             MSG[ok_start_sent]="Команда запуска отправлена"
             MSG[ok_stop_sent]="Команда остановки отправлена"
             MSG[ok_restart_sent]="Команда перезапуска отправлена"
@@ -486,7 +560,7 @@ set_language() {
             MSG[qr_warn_pkg]="Будет установлен libqrencode через pkg."
             MSG[prompt_qr_confirm]="Продолжить установку? [y/N]: "
             MSG[info_qr_installing]="Установка зависимостей QR..."
-            MSG[ok_qr_installed]="Поддержка QR установлена. Пункт меню 9 покажет QR-код."
+            MSG[ok_qr_installed]="Поддержка QR установлена. Пункт «%s» покажет QR-код."
             MSG[err_qr_install]="Не удалось установить зависимости QR"
             MSG[info_target_version]="Целевая версия: %s"
             MSG[prompt_version]="Введите версию (например v1.2.3): "
@@ -696,22 +770,59 @@ set_language() {
             MSG[menu_version]="  当前版本: %s"
             MSG[menu_system]="  系统:     %s %s"
             MSG[menu_arch]="  架构:     %s/%s"
-            MSG[menu_1]="一键安装"
-            MSG[menu_2]="升级 Nowhere"
-            MSG[menu_3]="配置/重新配置服务"
-            MSG[menu_4]="启动服务"
-            MSG[menu_5]="停止服务"
-            MSG[menu_6]="重启服务"
-            MSG[menu_7]="查看状态"
-            MSG[menu_8]="卸载 Nowhere"
-            MSG[menu_9]="显示分享 URI"
-            MSG[menu_10]="安装二维码支持库"
-            MSG[menu_11]="切换语言"
-            MSG[menu_12]="安装指定版本"
-            MSG[menu_13]="启动 Nowhere TUI"
-            MSG[menu_14]="升级 oh-nowhere 管理脚本"
-            MSG[menu_0]="退出"
-            MSG[prompt_menu]="请输入选项 [0-14]: "
+            MSG[menu_install]="一键安装"
+            MSG[menu_upgrade]="升级 Nowhere"
+            MSG[menu_pin_version]="安装指定版本"
+            MSG[menu_configure]="配置/重新配置服务"
+            MSG[menu_modify]="修改当前配置"
+            MSG[menu_start]="启动服务"
+            MSG[menu_stop]="停止服务"
+            MSG[menu_restart]="重启服务"
+            MSG[menu_status]="查看状态"
+            MSG[menu_tui]="启动 Nowhere TUI"
+            MSG[menu_share]="显示分享 URI"
+            MSG[menu_qr]="安装二维码支持库"
+            MSG[menu_lang]="切换语言"
+            MSG[menu_upgrade_script]="升级 oh-nowhere 管理脚本"
+            MSG[menu_uninstall]="卸载 Nowhere"
+            MSG[menu_exit]="退出"
+            MSG[menu_service]="服务状态: %s"
+            MSG[menu_svc_running]="运行中"
+            MSG[menu_svc_stopped]="已停止"
+            MSG[menu_svc_not_installed]="未安装"
+            MSG[modify_title]="修改 Nowhere 配置（角色: %s）"
+            MSG[modify_hint]="输入编号修改对应项；直接回车或 q 保存并应用。"
+            MSG[prompt_modify_choice]="要修改的项 [1-%s]（回车/q = 应用）: "
+            MSG[modify_none]="-"
+            MSG[modify_new_url]="新的运行 URL: %s"
+            MSG[info_configure_first]="尚无现有配置；请先执行“一键安装”或“交互配置”。"
+            MSG[err_invalid_tls]="无效的 TLS 模式 %s（应为 0、1 或 2）"
+            MSG[err_invalid_mux]="无效的 mux 值 %s（应为 0 或 1）"
+            MSG[warn_port_in_use]="端口 %s 已被占用"
+            MSG[prompt_port_conflict]="仍要使用端口 %s 吗? [y/N]: "
+            MSG[info_port_unchanged]="保留当前端口 %s"
+            MSG[err_port_in_use]="端口 %s 已被占用，请输入其他端口"
+            MSG[mf_key]="密钥"
+            MSG[mf_port]="端口"
+            MSG[mf_net]="承载方式 (net)"
+            MSG[mf_tcp_port]="TCP 端口"
+            MSG[mf_udp_port]="UDP 端口"
+            MSG[mf_tls]="TLS 模式"
+            MSG[mf_cert]="证书文件"
+            MSG[mf_keyfile]="私钥文件"
+            MSG[mf_alpn]="ALPN"
+            MSG[mf_morph]="Morph"
+            MSG[mf_up]="上行载体"
+            MSG[mf_down]="下行载体"
+            MSG[mf_mux]="Mux"
+            MSG[mf_socks]="SOCKS"
+            MSG[mf_next]="下一跳"
+            MSG[mf_sni]="SNI"
+            MSG[mf_pin]="SPKI pin"
+            MSG[mf_outbound]="出站方式"
+            MSG[mf_share_host]="分享地址"
+            MSG[mf_name]="节点名称"
+            MSG[prompt_menu]="请输入选项 [0-%s]: "
             MSG[ok_start_sent]="启动命令已发送"
             MSG[ok_stop_sent]="停止命令已发送"
             MSG[ok_restart_sent]="重启命令已发送"
@@ -723,7 +834,7 @@ set_language() {
             MSG[qr_warn_pkg]="将通过 pkg 安装 libqrencode。"
             MSG[prompt_qr_confirm]="是否继续安装? [y/N]: "
             MSG[info_qr_installing]="正在安装二维码依赖..."
-            MSG[ok_qr_installed]="二维码支持已安装。可使用菜单项 9 显示二维码。"
+            MSG[ok_qr_installed]="二维码支持已安装。可使用「%s」显示二维码。"
             MSG[err_qr_install]="二维码依赖安装失败"
             MSG[info_target_version]="目标版本: %s"
             MSG[prompt_version]="请输入版本号 (例如 v1.2.3): "
@@ -1200,6 +1311,69 @@ validate_net_value() {
     esac
 }
 
+validate_mux_value() {
+    case "$1" in
+        ""|0|1) return 0 ;;
+        *)
+            log_error "$(t err_invalid_mux "$1")"
+            return 1
+            ;;
+    esac
+}
+
+# Returns 0 when the port is already bound (TCP or UDP listener) by any process.
+port_in_use() {
+    local port="$1"
+    [[ -z "$port" ]] && return 1
+    if command -v ss >/dev/null 2>&1; then
+        ss -H -tuln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${port}$"
+    elif command -v sockstat >/dev/null 2>&1; then
+        sockstat -46ln 2>/dev/null | awk 'NR>1 {print $6}' | grep -qE "[:.]${port}$"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tuln 2>/dev/null | awk 'NR>2 {print $4}' | grep -qE "[:.]${port}$"
+    else
+        # No tool available to check; assume the port is free.
+        return 1
+    fi
+}
+
+# Warns and asks for confirmation when the port is occupied; returns 0 if usable.
+# Logs go to stderr so command substitutions capturing the chosen port stay clean.
+confirm_port_conflict() {
+    local port="$1"
+    port_in_use "$port" || return 0
+    log_warn "$(t warn_port_in_use "$port")" >&2
+    local ans=""
+    read -rp "$(t prompt_port_conflict "$port")" ans
+    [[ "$ans" =~ ^[Yy]$ ]]
+}
+
+# Reads a port with validation and conflict detection.
+# $1: prompt key, $2: default value, $3: previous value (skip check when unchanged).
+# Falls back to the previous value when a conflict is declined; without a
+# previous value it keeps asking until a free port is confirmed.
+read_port_checked() {
+    local prompt_key="$1" default="$2" previous="${3:-}"
+    local value=""
+    while true; do
+        read -rp "$(t "$prompt_key" "$default")" value
+        [[ -z "$value" ]] && value="$default"
+        if ! validate_port_value "$value"; then
+            continue
+        fi
+        if [[ -n "$previous" && "$value" == "$previous" ]] || confirm_port_conflict "$value"; then
+            printf '%s' "$value"
+            return 0
+        fi
+        if [[ -n "$previous" ]]; then
+            log_info "$(t info_port_unchanged "$previous")" >&2
+            printf '%s' "$previous"
+            return 0
+        fi
+        log_error "$(t err_port_in_use "$value")" >&2
+    done
+}
+
 enforce_v2_only_options() {
     local opt=""
     if [[ -n "$ARG_TCP_PORT" ]]; then
@@ -1617,23 +1791,51 @@ prompt_v2_carrier_ports() {
     case "$net" in
         tcp)
             tcp_port="${tcp_port:-$port}"
-            read -rp "$(t prompt_tcp_port "$tcp_port")" tcp_input
-            [[ -n "$tcp_input" ]] && tcp_port="$tcp_input"
+            while true; do
+                read -rp "$(t prompt_tcp_port "$tcp_port")" tcp_input
+                [[ -z "$tcp_input" ]] && break
+                validate_port_value "$tcp_input" || continue
+                if [[ "$tcp_input" == "$tcp_port" ]] || confirm_port_conflict "$tcp_input"; then
+                    tcp_port="$tcp_input"
+                fi
+                break
+            done
             udp_port=""
             ;;
         udp)
             udp_port="${udp_port:-$port}"
-            read -rp "$(t prompt_udp_port "$udp_port")" udp_input
-            [[ -n "$udp_input" ]] && udp_port="$udp_input"
+            while true; do
+                read -rp "$(t prompt_udp_port "$udp_port")" udp_input
+                [[ -z "$udp_input" ]] && break
+                validate_port_value "$udp_input" || continue
+                if [[ "$udp_input" == "$udp_port" ]] || confirm_port_conflict "$udp_input"; then
+                    udp_port="$udp_input"
+                fi
+                break
+            done
             tcp_port=""
             ;;
         *)
             tcp_port="${tcp_port:-$port}"
             udp_port="${udp_port:-$port}"
-            read -rp "$(t prompt_tcp_port "$tcp_port")" tcp_input
-            [[ -n "$tcp_input" ]] && tcp_port="$tcp_input"
-            read -rp "$(t prompt_udp_port "$udp_port")" udp_input
-            [[ -n "$udp_input" ]] && udp_port="$udp_input"
+            while true; do
+                read -rp "$(t prompt_tcp_port "$tcp_port")" tcp_input
+                [[ -z "$tcp_input" ]] && break
+                validate_port_value "$tcp_input" || continue
+                if [[ "$tcp_input" == "$tcp_port" ]] || confirm_port_conflict "$tcp_input"; then
+                    tcp_port="$tcp_input"
+                fi
+                break
+            done
+            while true; do
+                read -rp "$(t prompt_udp_port "$udp_port")" udp_input
+                [[ -z "$udp_input" ]] && break
+                validate_port_value "$udp_input" || continue
+                if [[ "$udp_input" == "$udp_port" ]] || confirm_port_conflict "$udp_input"; then
+                    udp_port="$udp_input"
+                fi
+                break
+            done
             ;;
     esac
     OUT_TCP_PORT="$tcp_port"
@@ -2381,6 +2583,24 @@ stop_service() {
     [[ "$INIT_SYSTEM" == "rc" ]] && service ${SERVICE_NAME} stop 2>/dev/null || true
 }
 
+# Returns 0 when the Nowhere service unit exists and is running.
+service_is_active() {
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl is-active --quiet ${SERVICE_NAME} 2>/dev/null
+            ;;
+        openrc)
+            rc-service ${SERVICE_NAME} status 2>/dev/null | grep -qiE 'started|running'
+            ;;
+        rc)
+            service ${SERVICE_NAME} status 2>/dev/null | grep -qi 'running'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 restart_service() {
     [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl restart ${SERVICE_NAME} || true
     [[ "$INIT_SYSTEM" == "openrc" ]] && rc-service ${SERVICE_NAME} restart || true
@@ -2785,8 +3005,9 @@ configure_nowhere() {
                 host="$host_input"
             fi
 
-            read -rp "$(t prompt_port "$port")" port_input
-            [[ -n "$port_input" ]] && port="$port_input"
+            local prev_port=""
+            [[ -n "$existing_url" ]] && prev_port="$port"
+            port=$(read_port_checked prompt_port "$port" "$prev_port")
 
             if is_v2_profile; then
                 read -rp "$(t prompt_net "$net")" net_input
@@ -2862,8 +3083,9 @@ configure_nowhere() {
             read -rp "$(t prompt_key "$key")" key_input
             [[ -n "$key_input" ]] && key="$key_input"
 
-            read -rp "$(t prompt_port "$port")" port_input
-            [[ -n "$port_input" ]] && port="$port_input"
+            local prev_port=""
+            [[ -n "$existing_url" ]] && prev_port="$port"
+            port=$(read_port_checked prompt_port "$port" "$prev_port")
 
             read -rp "$(t prompt_net "$net")" net_input
             [[ -n "$net_input" ]] && net="$net_input"
@@ -2943,6 +3165,362 @@ configure_nowhere() {
     else
         log_info "$(t info_config_not_saved)"
     fi
+}
+
+# ==================== Modify configuration ====================
+mf_add_field() {
+    MF_LABELS+=("$1")
+    MF_VARS+=("$2")
+    MF_PROMPTS+=("$3")
+}
+
+# Builds the editable field list for the current role into MF_LABELS/MF_VARS/MF_PROMPTS.
+# Reads the caller's variables (key, port, socks, next, ...) through dynamic scoping.
+mf_build_fields() {
+    local role="$1"
+    MF_LABELS=(); MF_VARS=(); MF_PROMPTS=()
+    mf_add_field mf_key key prompt_key
+    if [[ "$role" == "vector" ]]; then
+        mf_add_field mf_host host prompt_portal_host
+    fi
+    mf_add_field mf_port port prompt_port
+    mf_add_field mf_net net prompt_net
+    if is_v2_profile; then
+        mf_add_field mf_tcp_port tcp_port prompt_tcp_port
+        mf_add_field mf_udp_port udp_port prompt_udp_port
+    fi
+    if [[ "$role" == "portal" ]]; then
+        mf_add_field mf_tls tls prompt_tls
+        if [[ "$tls" == "2" ]]; then
+            mf_add_field mf_cert crt prompt_cert
+            mf_add_field mf_keyfile keyfile prompt_keyfile
+        fi
+    fi
+    if is_v2_profile; then
+        mf_add_field mf_morph morph prompt_morph
+    else
+        mf_add_field mf_alpn alpn prompt_alpn
+    fi
+    if [[ "$role" == "vector" ]]; then
+        mf_add_field mf_up up prompt_up
+        mf_add_field mf_down down prompt_down
+        if mux_applies "$up" "$down"; then
+            mf_add_field mf_mux mux prompt_mux
+        fi
+        mf_add_field mf_socks socks prompt_socks_in
+        mf_add_field mf_sni sni prompt_sni
+        mf_add_field mf_pin pin prompt_pin
+        mf_add_field mf_name name prompt_name
+    else
+        mf_add_field mf_share_host host prompt_host
+        mf_add_field mf_name name prompt_name
+        mf_add_field mf_outbound outbound prompt_outbound_mode
+        case "$(portal_outbound_mode "$socks" "$next")" in
+            socks)
+                mf_add_field mf_socks socks prompt_socks_out
+                ;;
+            next)
+                mf_add_field mf_next next prompt_next
+                mf_add_field mf_up up prompt_up
+                mf_add_field mf_down down prompt_down
+                if mux_applies "$up" "$down"; then
+                    mf_add_field mf_mux mux prompt_mux
+                fi
+                mf_add_field mf_sni sni prompt_sni
+                mf_add_field mf_pin pin prompt_pin
+                ;;
+        esac
+    fi
+}
+
+# Prints the display value of an editable field.
+mf_display_value() {
+    local vname="$1"
+    if [[ "$vname" == "outbound" ]]; then
+        portal_outbound_mode "$socks" "$next"
+        return
+    fi
+    local val="${!vname}"
+    if [[ -n "$val" ]]; then
+        printf '%s' "$val"
+    else
+        t modify_none
+    fi
+}
+
+# Prompts for a new value of one field and assigns it in the caller's scope.
+mf_edit_field() {
+    local role="$1" vname="$2" prompt_key="$3"
+    local current="" input=""
+    # "outbound" is derived from socks/next, not a stored variable.
+    if [[ "$vname" != "outbound" ]]; then
+        current="${!vname}"
+    fi
+    case "$vname" in
+        outbound)
+            local mode
+            mode=$(portal_outbound_mode "$socks" "$next")
+            read -rp "$(t prompt_outbound_mode "$mode")" input
+            input="${input:-$mode}"
+            case "$input" in
+                none)
+                    socks=""
+                    next=""
+                    ;;
+                socks)
+                    next=""
+                    local ds="${socks:-proxy.example:1080}"
+                    read -rp "$(t prompt_socks_out "$ds")" input
+                    socks="${input:-$ds}"
+                    ;;
+                next)
+                    socks=""
+                    local dn="${next:-origin-key@origin.example:2077}"
+                    read -rp "$(t prompt_next "$dn")" input
+                    next="${input:-$dn}"
+                    ;;
+                *)
+                    log_error "$(t err_invalid_type "$input")"
+                    return 1
+                    ;;
+            esac
+            return 0
+            ;;
+        key)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -n "$input" ]] && key="$input"
+            ;;
+        port|tcp_port|udp_port)
+            # Empty carrier ports inherit the shared port; the previous effective
+            # value is what the running service actually binds, so compare against it.
+            local eff_port="${current:-$port}"
+            local new_port
+            new_port=$(read_port_checked "$prompt_key" "$eff_port" "$eff_port")
+            printf -v "$vname" '%s' "$new_port"
+            ;;
+        net)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -z "$input" ]] && return 0
+            validate_net_value "$input" || return 1
+            net="$input"
+            if is_v2_profile; then
+                # A single-carrier policy cannot keep the opposite explicit port.
+                case "$net" in
+                    tcp) udp_port="" ;;
+                    udp) tcp_port="" ;;
+                esac
+            fi
+            ;;
+        tls)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -z "$input" ]] && return 0
+            case "$input" in
+                0|1|2) tls="$input" ;;
+                *)
+                    log_error "$(t err_invalid_tls "$input")"
+                    return 1
+                    ;;
+            esac
+            ;;
+        morph)
+            read -rp "$(t "$prompt_key" "${current:-0}")" input
+            [[ -z "$input" ]] && return 0
+            validate_morph_value "$input" || return 1
+            morph="$input"
+            ;;
+        alpn)
+            read -rp "$(t "$prompt_key" "$current")" input
+            if [[ "$input" == "-" ]]; then
+                alpn=""
+            elif [[ -n "$input" ]]; then
+                alpn="$input"
+            fi
+            ;;
+        up|down)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -z "$input" ]] && return 0
+            validate_carrier "$input" || return 1
+            printf -v "$vname" '%s' "$input"
+            ;;
+        mux)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -z "$input" ]] && return 0
+            validate_mux_value "$input" || return 1
+            mux="$input"
+            ;;
+        socks)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -z "$input" ]] && return 0
+            if [[ "$role" == "vector" && "$input" == "-" ]]; then
+                log_error "$(t err_socks_required)"
+                return 1
+            fi
+            [[ "$input" == "-" && "$role" == "portal" ]] && input=""
+            socks="$input"
+            ;;
+        next)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -n "$input" ]] && next="$input"
+            ;;
+        sni|pin)
+            read -rp "$(t "$prompt_key" "$current")" input
+            if [[ "$input" == "-" ]]; then
+                printf -v "$vname" '%s' ""
+            elif [[ -n "$input" ]]; then
+                printf -v "$vname" '%s' "$input"
+            fi
+            ;;
+        crt|keyfile)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -n "$input" ]] && printf -v "$vname" '%s' "$input"
+            ;;
+        host)
+            read -rp "$(t "$prompt_key" "$current")" input
+            if [[ "$input" == "-" && "$role" == "portal" ]]; then
+                host=""
+            elif [[ -n "$input" ]]; then
+                host="$input"
+            fi
+            ;;
+        name)
+            read -rp "$(t "$prompt_key" "$current")" input
+            if [[ "$input" == "-" ]]; then
+                name=""
+            elif [[ -n "$input" ]]; then
+                name="$input"
+            fi
+            ;;
+        *)
+            read -rp "$(t "$prompt_key" "$current")" input
+            [[ -n "$input" ]] && printf -v "$vname" '%s' "$input"
+            ;;
+    esac
+    return 0
+}
+
+# Interactive per-field editor for the stored run URL. Rebuilds the URL with the
+# existing builders, preserves parameters this editor does not manage (rate/etar/
+# dial/log, future keys), then saves and restarts the service so changes apply.
+modify_configuration() {
+    migrate_stored_url
+    if [[ ! -f "$URL_FILE" ]]; then
+        log_warn "$(t warn_no_config)"
+        log_info "$(t info_configure_first)"
+        return 1
+    fi
+
+    local url role
+    url=$(tr -d '\n' < "$URL_FILE")
+    role=$(detect_url_role "$url")
+    role="${role:-portal}"
+
+    local dc
+    dc=$(default_carrier)
+
+    parse_url_authority "$url"
+    local key="$PARSE_KEY" port="${PARSE_PORT:-2077}" host=""
+    local net="mix" tls="1" alpn="" socks="" next=""
+    local up="$dc" down="$dc" mux="0" sni="" pin="" morph=""
+    local tcp_port="" udp_port=""
+    local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+    if url_has_carrier_path "$url"; then
+        tcp_port="$PARSE_TCP_PORT"
+        udp_port="$PARSE_UDP_PORT"
+        [[ -n "$PARSE_CARRIERS" ]] && net="$PARSE_CARRIERS"
+    fi
+    if [[ "$role" == "vector" ]]; then
+        host="$PARSE_HOST"
+        up=$(get_query_param "$url" "up"); up="${up:-$dc}"
+        down=$(get_query_param "$url" "down"); down="${down:-$dc}"
+        mux=$(get_query_param "$url" "mux"); mux="${mux:-0}"
+        sni=$(get_query_param "$url" "sni")
+        pin=$(get_query_param "$url" "pin")
+        morph=$(get_query_param "$url" "morph")
+        socks=$(url_decode_simple "$(get_query_param "$url" "socks")")
+    else
+        local existing_net
+        existing_net=$(get_query_param "$url" "net")
+        [[ -n "$existing_net" ]] && net="$existing_net"
+        tls=$(get_query_param "$url" "tls"); tls="${tls:-1}"
+        load_portal_outbound_from_url "$url"
+        socks="$PORTAL_SOCKS"
+        next="$PORTAL_NEXT"
+        up="$PORTAL_UP"
+        down="$PORTAL_DOWN"
+        mux="$PORTAL_MUX"
+        sni="$PORTAL_SNI"
+        pin="$PORTAL_PIN"
+        morph="$PORTAL_MORPH"
+        crt=$(get_query_param "$url" "crt"); crt="${crt:-/etc/nowhere/cert.pem}"
+        keyfile=$(get_query_param "$url" "key"); keyfile="${keyfile:-/etc/nowhere/key.pem}"
+    fi
+    local existing_alpn
+    existing_alpn=$(get_query_param "$url" "alpn")
+    [[ -n "$existing_alpn" ]] && alpn=$(url_decode_simple "$existing_alpn")
+    host="${host:-$(load_share_host)}"
+    local name
+    name=$(load_node_name)
+
+    # Keep parameters this editor does not manage (rate/etar/dial/log, future keys).
+    local leftover="$url" p
+    for p in tls crt key net alpn socks next up down mux sni pin morph; do
+        leftover=$(strip_query_param "$leftover" "$p")
+    done
+    if [[ "$leftover" == *\?* ]]; then
+        leftover="${leftover#*\?}"
+    else
+        leftover=""
+    fi
+
+    while true; do
+        mf_build_fields "$role"
+        echo -e "\n${CYAN}$(t modify_title "${GREEN}${role}${NC}")${NC}"
+        echo -e "${CYAN}$(t label_run_url_status "${GREEN}${url}${NC}")${NC}"
+        echo -e "${CYAN}$(t modify_hint)${NC}"
+        local i total="${#MF_VARS[@]}"
+        for (( i=0; i<total; i++ )); do
+            printf "  ${YELLOW}%2d)${NC} %-18s: ${GREEN}%s${NC}\n" "$((i+1))" "$(t "${MF_LABELS[$i]}")" "$(mf_display_value "${MF_VARS[$i]}")"
+        done
+        local sel=""
+        read -rp "$(t prompt_modify_choice "$total")" sel
+        case "$sel" in
+            ""|q|Q)
+                break
+                ;;
+            *[!0-9]*)
+                log_error "$(t err_invalid_choice)"
+                ;;
+            *)
+                if (( sel >= 1 && sel <= total )); then
+                    mf_edit_field "$role" "${MF_VARS[$((sel-1))]}" "${MF_PROMPTS[$((sel-1))]}" || true
+                else
+                    log_error "$(t err_invalid_choice)"
+                fi
+                ;;
+        esac
+    done
+
+    local new_url
+    if [[ "$role" == "vector" ]]; then
+        if [[ -z "$host" ]]; then
+            log_error "$(t err_portal_host_required)"
+            return 1
+        fi
+        socks="${socks:-$DEFAULT_SOCKS_IN}"
+        new_url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
+    else
+        new_url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
+    fi
+    if [[ -n "$leftover" ]]; then
+        if [[ "$new_url" == *\?* ]]; then
+            new_url="${new_url}&${leftover}"
+        else
+            new_url="${new_url}?${leftover}"
+        fi
+    fi
+
+    echo -e "\n${CYAN}$(t modify_new_url "${GREEN}${new_url}${NC}")${NC}\n"
+    save_and_install_config "$new_url" "$host" "$name" "true"
 }
 
 # ==================== Upgrade ====================
@@ -3166,8 +3744,9 @@ auto_install_nowhere() {
             read -rp "$(t prompt_portal_host "$host")" host_input
             [[ -n "$host_input" ]] && host="$host_input"
 
-            read -rp "$(t prompt_port "$port")" port_input
-            [[ -n "$port_input" ]] && port="$port_input"
+            local prev_port=""
+            [[ -n "$existing_url" ]] && prev_port="$port"
+            port=$(read_port_checked prompt_port "$port" "$prev_port")
 
             if is_v2_profile; then
                 read -rp "$(t prompt_net "$net")" net_input
@@ -3223,8 +3802,9 @@ auto_install_nowhere() {
             read -rp "$(t prompt_key "$key")" key_input
             [[ -n "$key_input" ]] && key="$key_input"
 
-            read -rp "$(t prompt_port "$port")" port_input
-            [[ -n "$port_input" ]] && port="$port_input"
+            local prev_port=""
+            [[ -n "$existing_url" ]] && prev_port="$port"
+            port=$(read_port_checked prompt_port "$port" "$prev_port")
 
             read -rp "$(t prompt_net "$net")" net_input
             [[ -n "$net_input" ]] && net="$net_input"
@@ -3461,7 +4041,7 @@ install_qr_support() {
         return 1
     fi
 
-    log_success "$(t ok_qr_installed)"
+    log_success "$(t ok_qr_installed "$(t menu_share)")"
 }
 
 # ==================== Language selection ====================
@@ -3605,34 +4185,107 @@ upgrade_oh_nowhere_script() {
 }
 
 # ==================== Interactive menu ====================
+# Single source for display order and dispatch. An empty entry prints a blank
+# line between groups. Exit is always option 0 and is not part of this list.
+MENU_ACTIONS=(
+    install
+    upgrade
+    pin_version
+    ""
+    configure
+    modify
+    ""
+    start
+    stop
+    restart
+    status
+    tui
+    ""
+    share
+    qr
+    ""
+    lang
+    upgrade_script
+    uninstall
+)
+
+menu_action_count() {
+    local n=0 id
+    for id in "${MENU_ACTIONS[@]}"; do
+        if [[ -n "$id" ]]; then
+            n=$((n + 1))
+        fi
+    done
+    printf '%s' "$n"
+}
+
+menu_action_at() {
+    local want="$1" n=0 id
+    for id in "${MENU_ACTIONS[@]}"; do
+        [[ -z "$id" ]] && continue
+        n=$((n + 1))
+        if [[ "$n" == "$want" ]]; then
+            printf '%s' "$id"
+            return 0
+        fi
+    done
+    return 1
+}
+
+run_menu_action() {
+    case "$1" in
+        install) auto_install_nowhere ;;
+        upgrade) upgrade_nowhere ;;
+        pin_version) install_specific_version ;;
+        configure) configure_nowhere ;;
+        modify) modify_configuration ;;
+        start) start_service; log_success "$(t ok_start_sent)" ;;
+        stop) stop_service; log_success "$(t ok_stop_sent)" ;;
+        restart) restart_service; log_success "$(t ok_restart_sent)" ;;
+        status) show_status ;;
+        tui) launch_tui ;;
+        share) show_share_uri ;;
+        qr) install_qr_support ;;
+        lang) select_language ;;
+        upgrade_script) upgrade_oh_nowhere_script ;;
+        uninstall) uninstall_nowhere ;;
+        *) log_error "$(t err_invalid_choice)" ;;
+    esac
+}
+
 show_menu() {
     clear 2>/dev/null || true
     local version
     version="$(t not_installed)"
     command -v nowhere &>/dev/null && version=$(get_installed_version)
 
+    local svc_label
+    if ! command -v nowhere &>/dev/null; then
+        svc_label="${YELLOW}$(t menu_svc_not_installed)${NC}"
+    elif service_is_active; then
+        svc_label="${GREEN}$(t menu_svc_running)${NC}"
+    else
+        svc_label="${RED}$(t menu_svc_stopped)${NC}"
+    fi
+
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}$(t menu_title)${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo -e "$(t menu_version "${CYAN}${version}${NC}")"
+    echo -e "$(t menu_service "$svc_label")"
     echo -e "$(t menu_system "${CYAN}${OS_ID}" "${OS_VERSION_ID}${NC}")"
     echo -e "$(t menu_arch "${CYAN}${ARCH}" "${LIBC}${NC}")"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "  ${YELLOW}1)${NC} $(t menu_1)"
-    echo -e "  ${YELLOW}2)${NC} $(t menu_2)"
-    echo -e "  ${YELLOW}3)${NC} $(t menu_3)"
-    echo -e "  ${YELLOW}4)${NC} $(t menu_4)"
-    echo -e "  ${YELLOW}5)${NC} $(t menu_5)"
-    echo -e "  ${YELLOW}6)${NC} $(t menu_6)"
-    echo -e "  ${YELLOW}7)${NC} $(t menu_7)"
-    echo -e "  ${YELLOW}8)${NC} $(t menu_8)"
-    echo -e "  ${YELLOW}9)${NC} $(t menu_9)"
-    echo -e "  ${YELLOW}10)${NC} $(t menu_10)"
-    echo -e "  ${YELLOW}11)${NC} $(t menu_11)"
-    echo -e "  ${YELLOW}12)${NC} $(t menu_12)"
-    echo -e "  ${YELLOW}13)${NC} $(t menu_13)"
-    echo -e "  ${YELLOW}14)${NC} $(t menu_14)"
-    echo -e "  ${YELLOW}0)${NC} $(t menu_0)"
+    local n=0 id
+    for id in "${MENU_ACTIONS[@]}"; do
+        if [[ -z "$id" ]]; then
+            echo ""
+            continue
+        fi
+        n=$((n + 1))
+        echo -e "  ${YELLOW}${n})${NC} $(t "menu_${id}")"
+    done
+    echo -e "  ${YELLOW}0)${NC} $(t menu_exit)"
     echo -e "${GREEN}========================================${NC}"
 }
 
@@ -3643,26 +4296,22 @@ run_menu() {
 
     while true; do
         show_menu
-        read -rp "$(t prompt_menu)" choice
+        read -rp "$(t prompt_menu "$(menu_action_count)")" choice
 
-        case "$choice" in
-            1) auto_install_nowhere ;;
-            2) upgrade_nowhere ;;
-            3) configure_nowhere ;;
-            4) start_service; log_success "$(t ok_start_sent)" ;;
-            5) stop_service; log_success "$(t ok_stop_sent)" ;;
-            6) restart_service; log_success "$(t ok_restart_sent)" ;;
-            7) show_status ;;
-            8) uninstall_nowhere ;;
-            9) show_share_uri ;;
-            10) install_qr_support ;;
-            11) select_language ;;
-            12) install_specific_version ;;
-            13) launch_tui ;;
-            14) upgrade_oh_nowhere_script ;;
-            0) log_info "$(t info_exit)"; exit 0 ;;
-            *) log_error "$(t err_invalid_choice)" ;;
-        esac
+        if [[ "$choice" == "0" ]]; then
+            log_info "$(t info_exit)"
+            exit 0
+        fi
+
+        local action=""
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            action=$(menu_action_at "$choice") || true
+        fi
+        if [[ -n "$action" ]]; then
+            run_menu_action "$action"
+        else
+            log_error "$(t err_invalid_choice)"
+        fi
 
         echo ""
         if [[ -t 0 ]]; then

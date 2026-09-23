@@ -17,6 +17,9 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 * Install a specific Nowhere release version, including 1.x maintenance tags
 * Interactive version selection from GitHub releases
 * Interactive configuration menu
+* Per-field modification of the current configuration (menu item 5) with automatic service restart
+* Menu header shows the Nowhere service running state
+* Port conflict detection against local listeners during interactive setup and modification
 * Non-interactive CLI mode for automated deployment
 * systemd, OpenRC, and FreeBSD rc.d service support
 * Debian, Ubuntu, Alpine, and FreeBSD (2.0+ only) support
@@ -36,7 +39,7 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 
 ## Nowhere 2.0 (default) and 1.x maintenance
 
-Nowhere **2.0** is a breaking wire change: ALPN is fixed to `nw2` (`alpn=` is ignored), Portal `net=` is ignored (carriers are selected by the endpoint path), and 1.x peers cannot connect. This script defaults to the latest 2.x GitHub release. Keep a 1.x node with `--version v1.8.3` or menu item 12; 1.x is not the default upgrade target.
+Nowhere **2.0** is a breaking wire change: ALPN is fixed to `nw2` (`alpn=` is ignored), Portal `net=` is ignored (carriers are selected by the endpoint path), and 1.x peers cannot connect. This script defaults to the latest 2.x GitHub release. Keep a 1.x node with `--version v1.8.3` or menu item 3; 1.x is not the default upgrade target.
 
 * Portal and clients must share a major version (`now/1` vs `nw2`)
 * Interactive 1↔2 upgrade/downgrade asks for confirmation; `--upgrade` / `--install` print the warning and continue
@@ -74,7 +77,7 @@ This script is adapted for those releases:
 * On upgrade, any stored `spec=` is stripped from `/etc/nowhere/url.conf`
 * On upgrade, any stored `pool=` is stripped; `mux=1` is added for `tcp/tcp` when missing
 * Stored `nowhere://` run URLs are migrated to `vector://`
-* Menu item 13 / `--tui` launches the Nowhere dashboard (observational only; 1.7 shows upstream RTT)
+* Menu item 10 / `--tui` launches the Nowhere dashboard (observational only; 1.7 shows upstream RTT)
 * Portal relay nodes can use native chaining via `next=` (mutually exclusive with outbound `socks=`)
 * Every Portal in a native chain must support Nowhere 1.7.0 HOPS semantics
 * Portal and clients must be upgraded together for 1.5+ wire
@@ -119,20 +122,33 @@ Then select the action from the menu:
 ```text
 1. One-click install
 2. Upgrade Nowhere
-3. Configure service
-4. Start service
-5. Stop service
-6. Restart service
-7. Show status
-8. Uninstall Nowhere
-9. Show share URI
-10. Install QR code support
-11. Change language
-12. Install specific version
-13. Launch Nowhere TUI
+3. Install specific version
+
+4. Configure service
+5. Modify current configuration
+
+6. Start service
+7. Stop service
+8. Restart service
+9. Show status
+10. Launch Nowhere TUI
+
+11. Show share URI
+12. Install QR code support
+
+13. Change language
 14. Upgrade oh-nowhere script
+15. Uninstall Nowhere
 0. Exit
 ```
+
+The menu header shows the installed Nowhere version and the service state (running / stopped / not installed).
+
+## Modifying the Current Configuration
+
+Menu item **5** opens a per-field editor for the stored run URL. It lists every protocol parameter with its current value (role, key, ports, carrier policy `net`, TLS mode, `morph`/`alpn`, up/down carriers, `mux`, SOCKS / `next=` outbound, SNI, SPKI pin, share host, node name); enter the field number to change only that value, then press Enter or `q` to apply. The service is restarted automatically so changes take effect, and URL parameters the editor does not manage (e.g. `rate`/`etar`/`dial`/`log`) are preserved as-is.
+
+Port fields are checked against the local listener table (`ss`/`sockstat`/`netstat`): a port already in use triggers a warning, and you must confirm before it is accepted. The same check runs during interactive install and configuration.
 
 ## One-shot Installation
 
@@ -272,11 +288,11 @@ Upgrade or downgrade to a specific version:
 sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang en
 ```
 
-You can also select a version interactively by choosing menu item `12. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
+You can also select a version interactively by choosing menu item `3. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
 
 ## Service Roles
 
-Configure menu item 3 asks for `portal` or `vector`, or accepts a pasted `nowhere://` / `vector://` / `portal://` URL.
+Configure menu item 4 asks for `portal` or `vector`, or accepts a pasted `nowhere://` / `vector://` / `portal://` URL.
 
 | Role | Run URL | Outbound |
 | ---- | ------- | -------- |
@@ -356,7 +372,7 @@ Conflicts exit immediately: `--net tcp` with `--udp-port`, `--net udp` with `--t
 
 ## Client Share URI
 
-Menu item 9 / `--share` prints a `nowhere://` import URI for clients when the service role is Portal (not for Vector).
+Menu item 11 / `--share` prints a `nowhere://` import URI for clients when the service role is Portal (not for Vector).
 
 Examples:
 
@@ -380,7 +396,7 @@ Paste a `nowhere://` share URI into configure / `--url` to run Vector locally.
 
 ## Nowhere TUI
 
-Menu item 13 / `--tui` runs:
+Menu item 10 / `--tui` runs:
 
 ```bash
 nowhere tui

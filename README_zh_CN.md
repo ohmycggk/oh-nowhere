@@ -17,6 +17,9 @@
 * 安装指定 release，含 1.x 维护版本
 * 从 GitHub releases 交互式选择版本
 * 交互式配置菜单
+* 按字段修改当前配置（菜单项 5），保存后自动重启服务生效
+* 菜单头部显示 Nowhere 服务运行状态
+* 交互配置与修改时进行端口占用检测
 * 非交互 CLI，便于自动化部署
 * systemd、OpenRC、FreeBSD rc.d 服务支持
 * 支持 Debian、Ubuntu、Alpine，以及 FreeBSD（仅 2.0+）
@@ -36,7 +39,7 @@
 
 ## Nowhere 2.0（默认）与 1.x 维护
 
-Nowhere **2.0** 是破坏性线协议变更：ALPN 固定为 `nw2`（忽略 `alpn=`），Portal 的 `net=` 被忽略（载体由端点路径决定），1.x 对端无法互通。本脚本默认安装 GitHub 最新 2.x。用 `--version v1.8.3` 或菜单项 12 保留 1.x 节点；默认升级目标不会改回 1.8。
+Nowhere **2.0** 是破坏性线协议变更：ALPN 固定为 `nw2`（忽略 `alpn=`），Portal 的 `net=` 被忽略（载体由端点路径决定），1.x 对端无法互通。本脚本默认安装 GitHub 最新 2.x。用 `--version v1.8.3` 或菜单项 3 保留 1.x 节点；默认升级目标不会改回 1.8。
 
 * Portal 与客户端必须同主版本（`now/1` 与 `nw2` 不能互通）
 * 交互式跨主版本升级/降级会先确认；`--upgrade` / `--install` 只打警告后继续
@@ -74,7 +77,7 @@ Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere *
 * 升级时会从 `/etc/nowhere/url.conf` 剥离已废弃的 `spec=`
 * 升级时会剥离已废弃的 `pool=`，并在 `tcp/tcp` 且缺少 `mux=` 时写入 `mux=1`
 * 已存储的 `nowhere://` 运行 URL 会迁移为 `vector://`
-* 菜单项 13 / `--tui` 启动只读仪表盘（1.7 显示上游 RTT）
+* 菜单项 10 / `--tui` 启动只读仪表盘（1.7 显示上游 RTT）
 * Portal 中继可通过 `next=` 原生链式转发（与出站 `socks=` 互斥）
 * 原生链路上每个 Portal 须支持 Nowhere 1.7.0 HOPS 语义
 * 1.5+ 线协议要求 Portal 与客户端一并升级
@@ -119,20 +122,33 @@ sudo ./oh-nowhere.sh --lang zh
 ```text
 1. 一键安装
 2. 升级 Nowhere
-3. 配置/重新配置服务
-4. 启动服务
-5. 停止服务
-6. 重启服务
-7. 查看状态
-8. 卸载 Nowhere
-9. 显示分享 URI
-10. 安装二维码支持库
-11. 切换语言
-12. 安装指定版本
-13. 启动 Nowhere TUI
+3. 安装指定版本
+
+4. 配置/重新配置服务
+5. 修改当前配置
+
+6. 启动服务
+7. 停止服务
+8. 重启服务
+9. 查看状态
+10. 启动 Nowhere TUI
+
+11. 显示分享 URI
+12. 安装二维码支持库
+
+13. 切换语言
 14. 升级 oh-nowhere 管理脚本
+15. 卸载 Nowhere
 0. 退出
 ```
+
+菜单头部会显示已安装的 Nowhere 版本和服务运行状态（运行中 / 已停止 / 未安装）。
+
+## 修改当前配置
+
+菜单项 **5** 打开按字段编辑的交互界面，直接修改已保存的运行 URL。界面逐项列出当前所有协议参数（角色、密钥、端口、承载方式 `net`、TLS 模式、`morph`/`alpn`、上行/下行载体、`mux`、SOCKS / `next=` 出站、SNI、SPKI pin、分享地址、节点名称），输入编号即可只修改对应项；直接回车或输入 `q` 保存并自动重启服务使修改生效。编辑器不管理的 URL 参数（如 `rate`/`etar`/`dial`/`log`）会原样保留。
+
+端口字段会与本地监听表（`ss`/`sockstat`/`netstat`）做冲突检测：端口已被占用时会给出警告，必须确认后才允许使用。交互安装与配置流程中同样会进行该检查。
 
 ## 一键安装
 
@@ -276,7 +292,7 @@ sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang zh
 
 ## 服务角色
 
-配置菜单项 3 可选择 `portal` / `vector`，或粘贴 `nowhere://` / `vector://` / `portal://` URL。
+配置菜单项 4 可选择 `portal` / `vector`，或粘贴 `nowhere://` / `vector://` / `portal://` URL。
 
 | 角色 | 运行 URL | 出站 |
 | ---- | -------- | ---- |
@@ -356,7 +372,7 @@ sudo ./oh-nowhere.sh \
 
 ## 客户端分享 URI
 
-菜单项 9 / `--share` 在 Portal 角色下输出 `nowhere://` 导入 URI（Vector 不适用）。
+菜单项 11 / `--share` 在 Portal 角色下输出 `nowhere://` 导入 URI（Vector 不适用）。
 
 示例：
 
@@ -380,7 +396,7 @@ nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#N
 
 ## Nowhere TUI
 
-菜单项 13 / `--tui` 执行：
+菜单项 10 / `--tui` 执行：
 
 ```bash
 nowhere tui
