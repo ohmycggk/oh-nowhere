@@ -84,7 +84,7 @@ Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere *
 * Vector 与 Portal `next` 上游使用 `mux=0|1` 取代 `pool=`（1.8+）
 * Vector 与 Portal `next` 的 `up`/`down` 支持 `tcp|udp|mix`（1.8.3+）；`mix/mix` 按流解析为 `tcp/tcp` 或 `udp/udp`
 * 方向为 `tcp` 或 `mix` 时询问 Mux；`udp/udp` 不写入 `mux`（规范值为 `0`）
-* Portal `net=mix` 的分享 URI 使用 `up=mix&down=mix`
+* 分享 URI 的 `up`、`down` 分开处理：该侧为 `mix` 时写成 `udp`，`tcp`/`udp` 保持不变。Portal `net=mix` 两侧都是 `mix`，因此是 `up=udp&down=udp`
 
 ## 支持系统
 
@@ -356,7 +356,7 @@ sudo ./oh-nowhere.sh \
 
 | 模式  | 2.0 Portal 端点 | 1.x 查询参数 | 分享 URI 载体 |
 | ----- | --------------- | ------------ | ------------- |
-| `mix` | compact `KEY@:PORT`（TCP+UDP 同端口） | `net=mix` | `up=mix&down=mix` |
+| `mix` | compact `KEY@:PORT`（TCP+UDP 同端口） | `net=mix` | `up=udp&down=udp` |
 | `tcp` | `KEY@*/tcp:PORT` | `net=tcp` | `up=tcp&down=tcp`（1.x 另加 `mux=1`） |
 | `udp` | `KEY@*/udp:PORT` | `net=udp` | `up=udp&down=udp` |
 
@@ -377,12 +377,12 @@ sudo ./oh-nowhere.sh \
 示例：
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=mix&down=mix#Nowhere-US-203
-nowhere://change-me@relay.example/tcp:2006/udp:2017?up=mix&down=mix&morph=1#Nowhere-DE-45
+nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
 nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
-* 双载体 compact Portal → `host:port` 且 `up=mix&down=mix`；显式或拆端口使用路径形式
+* 双载体 compact Portal → `host:port`。`up`/`down` 哪一侧是 `mix` 就只把那一侧写成 `udp`（`net=mix` 时两侧都是 `mix`，所以是 `up=udp&down=udp`）；显式或拆端口使用路径形式
 * 仅 TCP / 仅 UDP 端点分别分享 `up=tcp&down=tcp` 或 `up=udp&down=udp`；2.0 不会自动加 `mux=1`
 * Portal `morph=1` 会写入分享 URI
 * 主机优先 `/etc/nowhere/host.conf`（或 `--host`），否则使用检测到的公网 IP

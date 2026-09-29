@@ -84,7 +84,7 @@ This script is adapted for those releases:
 * Vector and Portal `next` upstreams use `mux=0|1` instead of `pool=` (1.8+)
 * Vector and Portal `next` `up`/`down` accept `tcp|udp|mix` (1.8.3+); `mix/mix` resolves per flow to `tcp/tcp` or `udp/udp`
 * Mux is offered when a direction is `tcp` or `mix`; `udp/udp` omits `mux` (canonical `0`)
-* Portal `net=mix` share URIs use `up=mix&down=mix`
+* Share URI `up` and `down` are rewritten separately: a `mix` side becomes `udp`, while `tcp`/`udp` stay. Portal `net=mix` is `mix` on both sides, so the URI is `up=udp&down=udp`
 
 ## Supported Systems
 
@@ -356,7 +356,7 @@ sudo ./oh-nowhere.sh \
 
 | Mode  | 2.0 Portal endpoint | 1.x query | Share URI carriers |
 | ----- | ------------------- | --------- | ------------------ |
-| `mix` | compact `KEY@:PORT` (TCP+UDP same port) | `net=mix` | `up=mix&down=mix` |
+| `mix` | compact `KEY@:PORT` (TCP+UDP same port) | `net=mix` | `up=udp&down=udp` |
 | `tcp` | `KEY@*/tcp:PORT` | `net=tcp` | `up=tcp&down=tcp` (1.x also adds `mux=1`) |
 | `udp` | `KEY@*/udp:PORT` | `net=udp` | `up=udp&down=udp` |
 
@@ -377,12 +377,12 @@ Menu item 11 / `--share` prints a `nowhere://` import URI for clients when the s
 Examples:
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=mix&down=mix#Nowhere-US-203
-nowhere://change-me@relay.example/tcp:2006/udp:2017?up=mix&down=mix&morph=1#Nowhere-DE-45
+nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
 nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
-* Dual-carrier compact Portal → `host:port` with `up=mix&down=mix`; explicit or split ports use the path form
+* Dual-carrier compact Portal → `host:port`. Only a `mix` side is published as `udp` (`net=mix` is `mix` on both sides, so `up=udp&down=udp`); explicit or split ports use the path form
 * TCP-only / UDP-only endpoints share `up=tcp&down=tcp` or `up=udp&down=udp`; 2.0 does not auto-add `mux=1`
 * Portal `morph=1` is copied onto the share URI
 * Host prefers `/etc/nowhere/host.conf` (or `--host`); otherwise the detected public IP

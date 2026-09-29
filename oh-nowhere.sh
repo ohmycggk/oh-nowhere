@@ -3934,23 +3934,21 @@ show_share_uri() {
         client_uri="nowhere://${key}@${share_host}:${port}"
     fi
 
+    local share_up share_down
     case "$net_mode" in
-        tcp)
-            client_uri=$(append_query_param "$client_uri" "up=tcp")
-            client_uri=$(append_query_param "$client_uri" "down=tcp")
-            if ! is_v2_profile; then
-                client_uri=$(append_query_param "$client_uri" "mux=1")
-            fi
-            ;;
-        udp)
-            client_uri=$(append_query_param "$client_uri" "up=udp")
-            client_uri=$(append_query_param "$client_uri" "down=udp")
-            ;;
-        *)
-            client_uri=$(append_query_param "$client_uri" "up=mix")
-            client_uri=$(append_query_param "$client_uri" "down=mix")
-            ;;
+        tcp) share_up="tcp"; share_down="tcp" ;;
+        udp) share_up="udp"; share_down="udp" ;;
+        *) share_up="$net_mode"; share_down="$net_mode" ;;
     esac
+    # Clients do not accept mix. Rewrite each direction on its own:
+    # up=mix becomes up=udp, down=mix becomes down=udp. tcp/udp stay.
+    [[ "$share_up" == "mix" ]] && share_up="udp"
+    [[ "$share_down" == "mix" ]] && share_down="udp"
+    client_uri=$(append_query_param "$client_uri" "up=${share_up}")
+    client_uri=$(append_query_param "$client_uri" "down=${share_down}")
+    if ! is_v2_profile && [[ "$share_up" == "tcp" && "$share_down" == "tcp" ]]; then
+        client_uri=$(append_query_param "$client_uri" "mux=1")
+    fi
 
     if [[ "$morph_mode" == "1" ]]; then
         client_uri=$(append_query_param "$client_uri" "morph=1")

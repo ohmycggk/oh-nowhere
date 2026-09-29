@@ -84,7 +84,7 @@ Nowhere **1.5** вводит новый wire-протокол и удаляет 
 * Vector и upstream Portal `next` используют `mux=0|1` вместо `pool=` (1.8+)
 * Vector и Portal `next` принимают `up`/`down` = `tcp|udp|mix` (1.8.3+); `mix/mix` для каждого потока разрешается в `tcp/tcp` или `udp/udp`
 * Mux предлагается, если направление `tcp` или `mix`; для `udp/udp` `mux` не пишется (каноническое значение `0`)
-* Share URI Portal с `net=mix` используют `up=mix&down=mix`
+* В share URI `up` и `down` обрабатываются отдельно: сторона `mix` пишется как `udp`, `tcp`/`udp` не меняются. У Portal `net=mix` обе стороны `mix`, поэтому URI — `up=udp&down=udp`
 
 ## Поддерживаемые системы
 
@@ -356,7 +356,7 @@ sudo ./oh-nowhere.sh \
 
 | Режим | Endpoint Portal 2.0 | Query 1.x | Носители share URI |
 | ----- | ------------------- | --------- | ------------------ |
-| `mix` | compact `KEY@:PORT` (TCP+UDP на одном порту) | `net=mix` | `up=mix&down=mix` |
+| `mix` | compact `KEY@:PORT` (TCP+UDP на одном порту) | `net=mix` | `up=udp&down=udp` |
 | `tcp` | `KEY@*/tcp:PORT` | `net=tcp` | `up=tcp&down=tcp` (на 1.x ещё `mux=1`) |
 | `udp` | `KEY@*/udp:PORT` | `net=udp` | `up=udp&down=udp` |
 
@@ -377,12 +377,12 @@ sudo ./oh-nowhere.sh \
 Примеры:
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=mix&down=mix#Nowhere-US-203
-nowhere://change-me@relay.example/tcp:2006/udp:2017?up=mix&down=mix&morph=1#Nowhere-DE-45
+nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://change-me@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
 nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
 ```
 
-* Compact dual-carrier Portal → `host:port` с `up=mix&down=mix`; явные или разные порты используют путь
+* Compact dual-carrier Portal → `host:port`. Сторона `mix` публикуется как `udp` (`net=mix` — `mix` с обеих сторон, поэтому `up=udp&down=udp`); явные или разные порты используют путь
 * Endpoint только TCP / только UDP даёт `up=tcp&down=tcp` или `up=udp&down=udp`; 2.0 не добавляет `mux=1`
 * `morph=1` Portal копируется в share URI
 * Хост берётся из `/etc/nowhere/host.conf` (или `--host`), иначе — определённый публичный IP
