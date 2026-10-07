@@ -20,6 +20,7 @@ CONFIG_DIR="/etc/nowhere"
 URL_FILE="${CONFIG_DIR}/url.conf"
 HOST_FILE="${CONFIG_DIR}/host.conf"
 NAME_FILE="${CONFIG_DIR}/name.conf"
+PORTAL_LOG="/var/log/nowhere.log"
 LAUNCHER="${INSTALL_DIR}/nowhere-launch.sh"
 RC_SCRIPT="/usr/local/etc/rc.d/nowhere"
 SERVICE_NAME="nowhere"
@@ -150,6 +151,9 @@ set_language() {
             MSG[warn_migrated_pool]="Removed deprecated pool= from %s; added mux=1 where applicable (Nowhere 1.8)"
             MSG[warn_v15_incompat]="Nowhere 1.5+ uses a new wire protocol; upgrade Portal and clients together. 1.6 adds a read-only TUI (Linux-only). 1.7 adds native Portal chaining (next=); every hop must be 1.7.0+. 1.8 replaces the tcp/tcp warm pool with mux=0|1 TLS Mux (pool= removed). 1.8.3 adds mixed carrier policy: up/down accept tcp|udp|mix."
             MSG[warn_v20_incompat]="Nowhere 2.0 is a breaking change: ALPN is fixed to nw2 (alpn= ignored), Portal net= is ignored (carriers are selected by the endpoint path), and 1.x peers cannot connect. Upgrade Portal and clients together. Use --version v1.x.x to keep a 1.x node."
+            MSG[warn_v22_incompat]="Nowhere 2.2+ requires Portal keys of 32-64 lowercase hexadecimal characters and verifies Portal certificates by default: tls=1 (self-signed) clients must set pin=<sha256>. A non-conforming stored Portal key is regenerated automatically; redistribute the share URI."
+            MSG[warn_key_regenerated]="Stored Portal key in %s did not meet Nowhere 2.2 requirements; a new key was generated. All clients must be updated with the new share URI."
+            MSG[warn_next_key_invalid]="next= upstream key in %s does not meet Nowhere 2.2 requirements (32-64 lowercase hex); update the upstream Portal."
             MSG[prompt_v20_upgrade]="Cross-major upgrade/downgrade detected. Continue? [y/N]: "
             MSG[warn_migrated_v20]="Migrated %s to Nowhere 2.0 endpoint syntax (net=/alpn= removed)"
             MSG[warn_migrated_v1]="Migrated %s back to Nowhere 1.x URL syntax (net= restored, morph= removed)"
@@ -162,6 +166,8 @@ set_language() {
             MSG[err_net_port_conflict]="--net %s conflicts with the opposite --tcp-port/--udp-port"
             MSG[err_carrier_undeclared]="Carrier policy %s/%s is not available on the declared endpoint"
             MSG[err_invalid_port]="Invalid port: %s"
+            MSG[err_invalid_key]="Invalid Portal key: Nowhere 2.2+ requires 32-64 lowercase hexadecimal characters (generate one with: nowhere generate-key)"
+            MSG[err_invalid_next_key]="Invalid next= upstream key: Nowhere 2.2+ requires 32-64 lowercase hexadecimal characters on both ends"
             MSG[err_invalid_morph]="Invalid morph: %s (use 0 or 1)"
             MSG[err_invalid_net]="Invalid carrier mode: %s (use mix|tcp|udp)"
             MSG[help_opt_next]="      --next <key@host:port>  Portal native upstream (mutually exclusive with --socks)"
@@ -171,7 +177,7 @@ set_language() {
             MSG[err_next_required]="Native upstream requires next=<key@host:port>"
             MSG[label_next]="Next:       %s"
             MSG[warn_share_chain]="Chained Portal: next= is server-side only and is not included in the client share URI."
-            MSG[warn_sni_missing]="TLS=2 but no public hostname set; share URI omits sni (certificate verification disabled)."
+            MSG[warn_sni_missing]="TLS=2 but no public hostname set; share URI omits sni (clients need a certificate covering the share address, or use pin=)."
             MSG[label_generated_url]="Generated URL:"
             MSG[ok_config_updated]="Config updated and service restarted"
             MSG[prompt_save_config]="Save this config? [Y/n]: "
@@ -209,7 +215,13 @@ set_language() {
             MSG[share_title]="========== Nowhere Client Share =========="
             MSG[label_qr]="QR code:"
             MSG[label_client_uri]="Client URI:"
-            MSG[warn_tls_skip]="TLS=1 (self-signed). Clients must skip certificate verification."
+            MSG[warn_tls_skip]="TLS=1 (self-signed) on Nowhere 1.x. Clients must skip certificate verification."
+            MSG[warn_pin_required]="TLS=1 (self-signed): Nowhere 2.2+ verifies certificates by default, so clients must set pin=<sha256>. Skipping certificate verification is no longer possible."
+            MSG[warn_pin_unavailable]="Could not determine the certificate fingerprint. Get it from the Portal startup log (line \"TLS certificate SHA-256 fingerprint: ...\") or run: nowhere fingerprint <nowhere-url>"
+            MSG[warn_pin_changes]="The self-signed certificate (and its pin) is regenerated on every Portal restart; redistribute the share URI after restarts."
+            MSG[info_pin_fetched]="Certificate pin fetched automatically: %s"
+            MSG[label_fingerprint]="Cert pin:   %s"
+            MSG[prompt_fetch_pin]="Fetch the Portal certificate fingerprint automatically? [Y/n]: "
             MSG[status_title]="========== Nowhere Status =========="
             MSG[label_binary]="Binary:     %s"
             MSG[label_version]="Version:    %s"
@@ -313,7 +325,7 @@ set_language() {
             MSG[help_opt_uninstall]="  --uninstall            One-shot uninstall"
             MSG[help_opt_type]="      --type <portal|vector>  Service role (default portal)"
             MSG[help_opt_url]="      --url <uri>       Import portal://, vector://, or nowhere:// URI"
-            MSG[help_opt_key]="  -k, --key <key>        Shared key"
+            MSG[help_opt_key]="  -k, --key <key>        Shared key (Nowhere 2.2+ Portal keys: 32-64 lowercase hex)"
             MSG[help_opt_port]="  -p, --port <port>      Listen port (default 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      1.x TLS/QUIC ALPN (default now/1); ignored on Nowhere 2.0 (fixed nw2)"
             MSG[help_opt_host]="      --host <hostname>  Public hostname for share URI / SNI"
@@ -330,7 +342,7 @@ set_language() {
             MSG[help_opt_udp_port]="      --udp-port <port> QUIC/UDP port (Nowhere 2.0+; independent of --tcp-port)"
             MSG[help_opt_morph]="      --morph <0|1>    Keyed TLS/QUIC wire mask (Nowhere 2.0+; default 0, omitted)"
             MSG[help_opt_sni]="      --sni <name>      Certificate name (Vector or Portal next upstream)"
-            MSG[help_opt_pin]="      --pin <sha256>    Certificate pin (Vector or Portal next upstream)"
+            MSG[help_opt_pin]="      --pin <sha256>    Certificate pin (Nowhere 2.2+: required for tls=1 self-signed Portal; otherwise Vector or Portal next upstream)"
             MSG[help_opt_version]="  -v, --version <ver>    Install specific version (e.g. v2.0.0 or v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Script language (default zh)"
             MSG[prompt_type]="Service type (portal/vector) or paste nowhere:// [%s]: "
@@ -423,6 +435,9 @@ set_language() {
             MSG[warn_migrated_pool]="Удалён устаревший pool= из %s; при необходимости добавлен mux=1 (Nowhere 1.8)"
             MSG[warn_v15_incompat]="Nowhere 1.5+ использует новый wire-протокол; обновляйте Portal и клиенты вместе. 1.6 добавляет только для чтения TUI (только Linux). 1.7 добавляет цепочку Portal (next=); каждый узел должен быть 1.7.0+. 1.8 заменяет тёплый пул tcp/tcp на TLS Mux mux=0|1 (pool= удалён). 1.8.3 добавляет смешанную политику носителей: up/down принимают tcp|udp|mix."
             MSG[warn_v20_incompat]="Nowhere 2.0 — ломающее изменение: ALPN фиксирован как nw2 (alpn= игнорируется), Portal net= игнорируется (носители задаёт путь endpoint), узлы 1.x не подключаются. Обновляйте Portal и клиенты вместе. Для узла 1.x укажите --version v1.x.x."
+            MSG[warn_v22_incompat]="Nowhere 2.2+ требует ключи Portal из 32–64 строчных hex-символов и проверяет сертификаты Portal по умолчанию: клиенты tls=1 (самоподписанный) должны задать pin=<sha256>. Несоответствующий сохранённый ключ Portal будет перегенерирован; разошлите новый share URI."
+            MSG[warn_key_regenerated]="Сохранённый ключ Portal в %s не отвечает требованиям Nowhere 2.2; сгенерирован новый ключ. Обновите все клиенты новым share URI."
+            MSG[warn_next_key_invalid]="Ключ next= в %s не отвечает требованиям Nowhere 2.2 (32–64 строчных hex); обновите upstream Portal."
             MSG[prompt_v20_upgrade]="Обнаружено изменение мажорной версии. Продолжить? [y/N]: "
             MSG[warn_migrated_v20]="%s мигрирован на синтаксис endpoint Nowhere 2.0 (net=/alpn= удалены)"
             MSG[warn_migrated_v1]="%s возвращён к синтаксису URL Nowhere 1.x (net= восстановлен, morph= удалён)"
@@ -435,6 +450,8 @@ set_language() {
             MSG[err_net_port_conflict]="--net %s конфликтует с противоположным --tcp-port/--udp-port"
             MSG[err_carrier_undeclared]="Политика носителей %s/%s недоступна на объявленном endpoint"
             MSG[err_invalid_port]="Неверный порт: %s"
+            MSG[err_invalid_key]="Неверный ключ Portal: Nowhere 2.2+ требует 32–64 строчных hex-символа (создайте: nowhere generate-key)"
+            MSG[err_invalid_next_key]="Неверный ключ next=: Nowhere 2.2+ требует 32–64 строчных hex-символа с обеих сторон"
             MSG[err_invalid_morph]="Неверный morph: %s (0 или 1)"
             MSG[err_invalid_net]="Неверный режим носителя: %s (mix|tcp|udp)"
             MSG[help_opt_next]="      --next <key@host:port>  Следующий Portal (next=; несовместимо с --socks)"
@@ -444,7 +461,7 @@ set_language() {
             MSG[err_next_required]="Для native upstream нужен next=<key@host:port>"
             MSG[label_next]="Next:       %s"
             MSG[warn_share_chain]="Цепочка Portal: next= только на сервере и не попадает в share URI клиента."
-            MSG[warn_sni_missing]="TLS=2, но публичное имя не задано; в share URI нет sni (проверка сертификата отключена)."
+            MSG[warn_sni_missing]="TLS=2, но публичное имя не задано; в share URI нет sni (клиенту нужен сертификат, покрывающий адрес шаринга, или pin=)."
             MSG[label_generated_url]="Сгенерированный URL:"
             MSG[ok_config_updated]="Конфиг обновлён, служба перезапущена"
             MSG[prompt_save_config]="Сохранить конфиг? [Y/n]: "
@@ -482,7 +499,13 @@ set_language() {
             MSG[share_title]="========== Поделиться клиентом Nowhere =========="
             MSG[label_qr]="QR-код:"
             MSG[label_client_uri]="URI клиента:"
-            MSG[warn_tls_skip]="TLS=1 (самоподписанный сертификат). Клиенту нужно пропустить проверку сертификата."
+            MSG[warn_tls_skip]="TLS=1 (самоподписанный сертификат) на Nowhere 1.x. Клиенту нужно пропустить проверку сертификата."
+            MSG[warn_pin_required]="TLS=1 (самоподписанный): Nowhere 2.2+ проверяет сертификаты по умолчанию — клиенты должны задать pin=<sha256>. Пропустить проверку сертификата больше нельзя."
+            MSG[warn_pin_unavailable]="Не удалось определить отпечаток сертификата. Возьмите его из лога запуска Portal (строка «TLS certificate SHA-256 fingerprint: ...») или выполните: nowhere fingerprint <nowhere-url>"
+            MSG[warn_pin_changes]="Самоподписанный сертификат (и его pin) пересоздаётся при каждом перезапуске Portal; пересылайте share URI после перезапусков."
+            MSG[info_pin_fetched]="Отпечаток сертификата получен автоматически: %s"
+            MSG[label_fingerprint]="Pin серта:  %s"
+            MSG[prompt_fetch_pin]="Получить отпечаток сертификата Portal автоматически? [Y/n]: "
             MSG[status_title]="========== Статус Nowhere =========="
             MSG[label_binary]="Бинарник:   %s"
             MSG[label_version]="Версия:     %s"
@@ -586,7 +609,7 @@ set_language() {
             MSG[help_opt_uninstall]="  --uninstall            Удаление"
             MSG[help_opt_type]="      --type <portal|vector>  Роль службы (по умолчанию portal)"
             MSG[help_opt_url]="      --url <uri>       Импорт portal://, vector:// или nowhere:// URI"
-            MSG[help_opt_key]="  -k, --key <ключ>       Общий ключ"
+            MSG[help_opt_key]="  -k, --key <ключ>       Общий ключ (ключи Portal в Nowhere 2.2+: 32–64 строчных hex)"
             MSG[help_opt_port]="  -p, --port <порт>      Порт (по умолчанию 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      ALPN для 1.x (по умолчанию now/1); в Nowhere 2.0 игнорируется (nw2)"
             MSG[help_opt_host]="      --host <hostname>  Публичное имя для share URI / SNI"
@@ -603,7 +626,7 @@ set_language() {
             MSG[help_opt_udp_port]="      --udp-port <порт> Порт QUIC/UDP (Nowhere 2.0+)"
             MSG[help_opt_morph]="      --morph <0|1>    Маскировка TLS/QUIC (Nowhere 2.0+; по умолчанию 0)"
             MSG[help_opt_sni]="      --sni <имя>       Имя сертификата (Vector или Portal next)"
-            MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата (Vector или Portal next)"
+            MSG[help_opt_pin]="      --pin <sha256>    Pin сертификата (Nowhere 2.2+: обязателен для самоподписанного Portal tls=1; иначе Vector или next)"
             MSG[help_opt_version]="  -v, --version <ver>    Установить указанную версию (например v2.0.0 или v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  Язык скрипта (по умолчанию zh)"
             MSG[prompt_type]="Тип службы (portal/vector) или вставьте nowhere:// [%s]: "
@@ -697,6 +720,9 @@ set_language() {
             MSG[warn_migrated_pool]="已从 %s 移除废弃的 pool=，并在适用时写入 mux=1（Nowhere 1.8）"
             MSG[warn_v15_incompat]="Nowhere 1.5+ 使用新线协议，请一并升级 Portal 与客户端。1.6 新增只读 TUI（仅 Linux）。1.7 新增 Portal 原生链式转发（next=），链路上各节点须 ≥1.7.0。1.8 以 mux=0|1 TLS Mux 取代 tcp/tcp 预热连接池（pool= 已移除）。1.8.3 新增混合载体策略：up/down 可为 tcp|udp|mix。"
             MSG[warn_v20_incompat]="Nowhere 2.0 为破坏性变更：ALPN 固定为 nw2（忽略 alpn=），Portal 的 net= 已失效（载体由端点路径选择），1.x 节点无法互通。请一并升级 Portal 与客户端。维护 1.x 节点请使用 --version v1.x.x。"
+            MSG[warn_v22_incompat]="Nowhere 2.2+ 要求 Portal 密钥为 32-64 位小写十六进制字符，并默认强制校验 Portal 证书：tls=1（自签）客户端必须设置 pin=<sha256>。不符合要求的已存储 Portal 密钥将被自动重新生成，请重新分发分享 URI。"
+            MSG[warn_key_regenerated]="%s 中存储的 Portal 密钥不符合 Nowhere 2.2 要求，已生成新密钥。请使用新的分享 URI 更新所有客户端。"
+            MSG[warn_next_key_invalid]="%s 中的 next= 上游密钥不符合 Nowhere 2.2 要求（32-64 位小写十六进制）；请更新上游 Portal。"
             MSG[prompt_v20_upgrade]="检测到跨主版本升级/降级，是否继续? [y/N]: "
             MSG[warn_migrated_v20]="已将 %s 迁移为 Nowhere 2.0 端点语法（已移除 net=/alpn=）"
             MSG[warn_migrated_v1]="已将 %s 还原为 Nowhere 1.x URL 语法（已恢复 net=，已移除 morph=）"
@@ -709,6 +735,8 @@ set_language() {
             MSG[err_net_port_conflict]="--net %s 与对向的 --tcp-port/--udp-port 冲突"
             MSG[err_carrier_undeclared]="载体策略 %s/%s 不在当前端点声明的载体内"
             MSG[err_invalid_port]="无效端口: %s"
+            MSG[err_invalid_key]="无效的 Portal 密钥: Nowhere 2.2+ 要求 32-64 位小写十六进制字符（可用 nowhere generate-key 生成）"
+            MSG[err_invalid_next_key]="无效的 next= 上游密钥: Nowhere 2.2+ 要求两端均为 32-64 位小写十六进制字符"
             MSG[err_invalid_morph]="无效 morph: %s（使用 0 或 1）"
             MSG[err_invalid_net]="无效载体模式: %s（使用 mix|tcp|udp）"
             MSG[help_opt_next]="      --next <key@host:port>  Portal 原生上游（与 --socks 互斥）"
@@ -718,7 +746,7 @@ set_language() {
             MSG[err_next_required]="原生上游需要 next=<key@host:port>"
             MSG[label_next]="Next:       %s"
             MSG[warn_share_chain]="当前为链式 Portal：next= 仅服务端配置，不会写入客户端分享 URI。"
-            MSG[warn_sni_missing]="TLS=2 但未设置公网主机名；分享 URI 将省略 sni（跳过证书校验）。"
+            MSG[warn_sni_missing]="TLS=2 但未设置公网主机名；分享 URI 将省略 sni（客户端需要覆盖分享地址的证书，或改用 pin=）。"
             MSG[label_generated_url]="生成的 URL："
             MSG[ok_config_updated]="配置已更新并重启服务"
             MSG[prompt_save_config]="是否保存此配置? [Y/n]: "
@@ -756,7 +784,13 @@ set_language() {
             MSG[share_title]="========== Nowhere 客户端分享 =========="
             MSG[label_qr]="二维码："
             MSG[label_client_uri]="客户端 URI："
-            MSG[warn_tls_skip]="当前为 TLS=1（自签证书），客户端连接时需跳过证书验证。"
+            MSG[warn_tls_skip]="Nowhere 1.x 下为 TLS=1（自签证书），客户端连接时需跳过证书验证。"
+            MSG[warn_pin_required]="TLS=1（自签证书）：Nowhere 2.2+ 默认强制校验证书，客户端必须设置 pin=<sha256>。现已无法跳过证书验证。"
+            MSG[warn_pin_unavailable]="无法自动获取证书指纹。请从 Portal 启动日志（行 “TLS certificate SHA-256 fingerprint: ...”）获取，或运行: nowhere fingerprint <nowhere-url>"
+            MSG[warn_pin_changes]="自签证书（及其 pin）会在 Portal 每次重启时重新生成；重启后请重新分发分享 URI。"
+            MSG[info_pin_fetched]="已自动获取证书 pin: %s"
+            MSG[label_fingerprint]="证书 pin:  %s"
+            MSG[prompt_fetch_pin]="是否自动获取 Portal 证书指纹? [Y/n]: "
             MSG[status_title]="========== Nowhere 状态 =========="
             MSG[label_binary]="二进制位置: %s"
             MSG[label_version]="当前版本:   %s"
@@ -860,7 +894,7 @@ set_language() {
             MSG[help_opt_uninstall]="  --uninstall            一键卸载"
             MSG[help_opt_type]="      --type <portal|vector>  服务角色 (默认 portal)"
             MSG[help_opt_url]="      --url <uri>       导入 portal://、vector:// 或 nowhere:// URI"
-            MSG[help_opt_key]="  -k, --key <密钥>       指定共享密钥"
+            MSG[help_opt_key]="  -k, --key <密钥>       指定共享密钥（Nowhere 2.2+ Portal 密钥: 32-64 位小写十六进制）"
             MSG[help_opt_port]="  -p, --port <端口>      指定监听端口 (默认 2077)"
             MSG[help_opt_alpn]="      --alpn <alpn>      1.x TLS/QUIC ALPN (默认 now/1)；Nowhere 2.0 忽略（固定 nw2）"
             MSG[help_opt_host]="      --host <hostname>  分享 URI / SNI 用的公网主机名"
@@ -877,7 +911,7 @@ set_language() {
             MSG[help_opt_udp_port]="      --udp-port <端口> QUIC/UDP 端口（Nowhere 2.0+，可与 TCP 不同）"
             MSG[help_opt_morph]="      --morph <0|1>    TLS/QUIC 线形伪装（Nowhere 2.0+；默认 0，不写入）"
             MSG[help_opt_sni]="      --sni <名称>      证书名（Vector 或 Portal next 上游）"
-            MSG[help_opt_pin]="      --pin <sha256>    证书固定（Vector 或 Portal next 上游）"
+            MSG[help_opt_pin]="      --pin <sha256>    证书固定（Nowhere 2.2+: tls=1 自签 Portal 必需；否则用于 Vector 或 next 上游）"
             MSG[help_opt_version]="  -v, --version <版本>   安装指定版本 (例如 v2.0.0 或 v1.8.3)"
             MSG[help_opt_lang]="  -l, --lang <en|zh|ru>  脚本语言 (默认 zh)"
             MSG[prompt_type]="服务类型 (portal/vector) 或粘贴 nowhere:// [%s]: "
@@ -1121,6 +1155,20 @@ check_dependencies() {
 
 # ==================== Helpers ====================
 generate_random_key() {
+    # Nowhere 2.2+ requires 32-64 lowercase hexadecimal Portal keys; prefer the
+    # binary's own generator when it is available, fall back to /dev/urandom.
+    # 1.x accepts any non-empty key and keeps the historical random word.
+    if is_v2_profile; then
+        local key=""
+        if command -v nowhere &>/dev/null; then
+            key=$(nowhere generate-key 2>/dev/null | head -n1 | tr -d '\r\n ' | grep -E '^[0-9a-f]{32,64}$' || true)
+        fi
+        if [[ -z "$key" ]]; then
+            key=$(tr -dc '0-9a-f' </dev/urandom | head -c 32)
+        fi
+        printf '%s' "$key"
+        return 0
+    fi
     tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 16
 }
 
@@ -1274,6 +1322,62 @@ is_v2_profile() {
     [[ -n "$major" && "$major" -ge 2 ]]
 }
 
+# Effective Nowhere version string for the current/planned operation.
+# Empty means "latest" (default install/upgrade target).
+effective_version() {
+    if [[ -n "$ARG_VERSION" ]]; then
+        echo "$ARG_VERSION"
+        return
+    fi
+    if [[ -n "$TARGET_VERSION" ]]; then
+        echo "$TARGET_VERSION"
+        return
+    fi
+    case "$AUTO_MODE" in
+        install|upgrade)
+            echo ""
+            return
+            ;;
+    esac
+    get_installed_version
+}
+
+# Compare semantic major.minor.patch versions: success if $1 >= $2.
+version_ge() {
+    local have="$1" need="$2"
+    local i hv nv
+    for i in 1 2 3; do
+        hv=$(version_part "$have" "$i")
+        nv=$(version_part "$need" "$i")
+        if (( 10#$hv != 10#$nv )); then
+            (( 10#$hv > 10#$nv ))
+            return
+        fi
+    done
+    return 0
+}
+
+version_part() {
+    local v="${1#v}"
+    local part
+    part=$(echo "$v" | cut -d'.' -f "$2")
+    part="${part%%[!0-9]*}"
+    echo "${part:-0}"
+}
+
+# Nowhere 2.2+ enforces 32-64 lowercase hex Portal keys and mandatory
+# certificate verification. Empty version counts as latest (2.2+).
+is_v22_profile() {
+    local v
+    v=$(effective_version)
+    [[ -z "$v" ]] && return 0
+    version_ge "$v" "2.2.0"
+}
+
+valid_v22_key() {
+    [[ "$1" =~ ^[0-9a-f]{32,64}$ ]]
+}
+
 default_carrier() {
     if is_v2_profile; then
         echo tcp
@@ -1374,6 +1478,25 @@ read_port_checked() {
     done
 }
 
+# Reads a shared key interactively. On Nowhere 2.2+ a Portal key must be
+# 32-64 lowercase hexadecimal characters; invalid input is reported and the
+# prompt repeats. Empty input keeps the current key. Sets ENTERED_KEY.
+read_key_checked() {
+    local role="$1" current="$2" input=""
+    while true; do
+        read -rp "$(t prompt_key "$current")" input
+        [[ -z "$input" ]] && break
+        if [[ "$role" == "portal" ]] && is_v22_profile && ! valid_v22_key "$input"; then
+            log_error "$(t err_invalid_key)"
+            continue
+        fi
+        ENTERED_KEY="$input"
+        return 0
+    done
+    ENTERED_KEY="$current"
+    return 0
+}
+
 enforce_v2_only_options() {
     local opt=""
     if [[ -n "$ARG_TCP_PORT" ]]; then
@@ -1464,6 +1587,24 @@ encode_next_endpoint() {
     local shared_key="${next%@*}"
     local hostport="${next##*@}"
     printf '%s@%s' "$(url_encode_component "$shared_key")" "$hostport"
+}
+
+rewrite_url_key() {
+    # Replaces the userinfo key of a portal:// / vector:// URL.
+    local url="$1"
+    local newkey="$2"
+    echo "$url" | sed -E "s#^([a-z]+://)[^@]*@#\\1${newkey}@#"
+}
+
+run_with_timeout() {
+    # FreeBSD has no timeout(1) by default; run the command unbounded there.
+    local secs="$1"
+    shift
+    if command -v timeout &>/dev/null; then
+        timeout "$secs" "$@"
+    else
+        "$@"
+    fi
 }
 
 portal_outbound_mode() {
@@ -1960,6 +2101,19 @@ build_portal_url() {
     if ! validate_morph_value "$morph"; then
         return 1
     fi
+    if is_v22_profile; then
+        if ! valid_v22_key "$key"; then
+            log_error "$(t err_invalid_key)"
+            return 1
+        fi
+        if [[ -n "$next" && "$next" != "none" && "$next" == *@* ]]; then
+            local next_key="${next%@*}"
+            if ! valid_v22_key "$next_key"; then
+                log_error "$(t err_invalid_next_key)"
+                return 1
+            fi
+        fi
+    fi
 
     local dc hostpart url
     dc=$(default_carrier)
@@ -2185,6 +2339,43 @@ migrate_stored_url() {
     else
         migrate_url_to_v1
     fi
+
+    migrate_portal_url_for_v22
+}
+
+# Nowhere 2.2+ refuses to start a Portal whose shared key (or next= upstream
+# key) is not 32-64 lowercase hexadecimal characters. A non-conforming Portal
+# key is regenerated automatically (the old key cannot be used anyway); next=
+# belongs to the upstream Portal and is only reported.
+migrate_portal_url_for_v22() {
+    [[ -f "$URL_FILE" ]] || return 0
+    is_v22_profile || return 0
+
+    local url migrated=false newkey next next_key
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+    [[ "$(detect_url_role "$url")" == "portal" ]] || return 0
+
+    parse_url_authority "$url"
+    if [[ -n "$PARSE_KEY" ]] && ! valid_v22_key "$PARSE_KEY"; then
+        newkey=$(generate_random_key)
+        url=$(rewrite_url_key "$url" "$newkey")
+        migrated=true
+    fi
+
+    next=$(get_query_param "$url" "next")
+    if [[ -n "$next" ]]; then
+        next_key=$(url_decode_simple "$next")
+        next_key="${next_key%@*}"
+        if ! valid_v22_key "$next_key"; then
+            log_warn "$(t warn_next_key_invalid "$URL_FILE")"
+        fi
+    fi
+
+    if [[ "$migrated" == "true" ]]; then
+        echo "$url" > "$URL_FILE"
+        log_warn "$(t warn_key_regenerated "$URL_FILE")"
+    fi
 }
 
 migrate_url_to_v2() {
@@ -2296,6 +2487,59 @@ qr_support_available() {
         return 0
     fi
     return 1
+}
+
+# Best-effort SHA-256 fingerprint (64 lowercase hex) of the running Portal's
+# TLS certificate. $1 is a local nowhere:// probe URL with a TCP carrier.
+# Sources: service log (journal or file), otherwise a local fingerprint probe.
+get_portal_fingerprint() {
+    local probe_url="$1"
+    local fp=""
+
+    if [[ "$INIT_SYSTEM" == "systemd" ]] && command -v journalctl &>/dev/null; then
+        fp=$(journalctl -u ${SERVICE_NAME} --no-pager -n 500 2>/dev/null \
+            | grep -oE 'fingerprint: [0-9a-f]{64}' | tail -n1 | grep -oE '[0-9a-f]{64}' || true)
+    elif [[ -f "$PORTAL_LOG" ]]; then
+        fp=$(grep -oE 'fingerprint: [0-9a-f]{64}' "$PORTAL_LOG" 2>/dev/null \
+            | tail -n1 | grep -oE '[0-9a-f]{64}' || true)
+    fi
+
+    if [[ -z "$fp" ]] && command -v nowhere &>/dev/null && service_is_active; then
+        fp=$(run_with_timeout 10 nowhere fingerprint "$probe_url" 2>/dev/null \
+            | head -n1 | grep -oE '^[0-9a-f]{64}$' || true)
+    fi
+
+    printf '%s' "$fp"
+}
+
+# Builds a local nowhere:// probe URL for fingerprinting.
+# Sets FINGERPRINT_PROBE_URL; fails when no TCP carrier or host is available.
+build_fingerprint_probe_url() {
+    local key="$1" host="$2" port="$3" net="$4" tcp_port="$5" udp_port="$6" sni="$7" morph="$8"
+    FINGERPRINT_PROBE_URL=""
+    [[ -z "$host" || "$host" == "*" ]] && return 1
+    validate_net_value "$net" >/dev/null 2>&1 || return 1
+    if ! resolve_carrier_ports "$net" "$port" "$tcp_port" "$udp_port" >/dev/null 2>&1; then
+        return 1
+    fi
+    [[ -z "$RESOLVED_TCP" ]] && return 1
+    local url="nowhere://${key}@${host}/tcp:${RESOLVED_TCP}"
+    [[ -n "$sni" && "$sni" != "none" ]] && url=$(append_query_param "$url" "sni=${sni}")
+    [[ "$morph" == "1" ]] && url=$(append_query_param "$url" "morph=1")
+    FINGERPRINT_PROBE_URL="$url"
+    return 0
+}
+
+# Fetches the Portal certificate fingerprint with the nowhere binary.
+# Sets FETCHED_PIN (empty on failure); silent about the reason.
+fetch_pin_via_binary() {
+    local key="$1" host="$2" port="$3" net="$4" tcp_port="$5" udp_port="$6" sni="$7" morph="$8"
+    FETCHED_PIN=""
+    command -v nowhere &>/dev/null || return 1
+    build_fingerprint_probe_url "$key" "$host" "$port" "$net" "$tcp_port" "$udp_port" "$sni" "$morph" || return 1
+    FETCHED_PIN=$(run_with_timeout 10 nowhere fingerprint "$FINGERPRINT_PROBE_URL" 2>/dev/null \
+        | head -n1 | grep -oE '^[0-9a-f]{64}$' || true)
+    [[ -n "$FETCHED_PIN" ]]
 }
 
 # ==================== Version lookup ====================
@@ -2506,6 +2750,8 @@ description="${desc}"
 command="/usr/local/bin/nowhere-launch.sh"
 command_background=true
 pidfile="/run/\${RC_SVCNAME}.pid"
+output_log="${PORTAL_LOG}"
+error_log="${PORTAL_LOG}"
 depend() {
     need net
     after firewall
@@ -2533,7 +2779,7 @@ desc="${desc}"
 pidfile="/var/run/\${name}.pid"
 procname="/usr/local/bin/nowhere"
 command="/usr/sbin/daemon"
-command_args="-P \${pidfile} ${LAUNCHER}"
+command_args="-P \${pidfile} -o ${PORTAL_LOG} ${LAUNCHER}"
 
 load_rc_config \$name
 : \${nowhere_enable:=NO}
@@ -3048,6 +3294,22 @@ configure_nowhere() {
                 pin="$pin_input"
             fi
 
+            if is_v22_profile && [[ -z "$pin" ]]; then
+                log_warn "$(t warn_pin_required)"
+                if command -v nowhere &>/dev/null; then
+                    local fetch_ans=""
+                    read -rp "$(t prompt_fetch_pin)" fetch_ans
+                    if [[ -z "$fetch_ans" || "$fetch_ans" =~ ^[Yy]$ ]]; then
+                        if fetch_pin_via_binary "$key" "$host" "$port" "$net" "$tcp_port" "$udp_port" "$sni" "${morph:-0}"; then
+                            pin="$FETCHED_PIN"
+                            log_success "$(t info_pin_fetched "$pin")"
+                        else
+                            log_warn "$(t warn_pin_unavailable)"
+                        fi
+                    fi
+                fi
+            fi
+
             if is_v2_profile; then
                 read -rp "$(t prompt_morph "${morph:-0}")" morph_input
                 [[ -n "$morph_input" ]] && morph="$morph_input"
@@ -3080,8 +3342,8 @@ configure_nowhere() {
         if [[ "$skip_prompts" == false ]]; then
             echo -e "${CYAN}$(t prompt_config_intro)${NC}"
 
-            read -rp "$(t prompt_key "$key")" key_input
-            [[ -n "$key_input" ]] && key="$key_input"
+            read_key_checked "portal" "$key" || return 1
+            key="$ENTERED_KEY"
 
             local prev_port=""
             [[ -n "$existing_url" ]] && prev_port="$port"
@@ -3288,7 +3550,13 @@ mf_edit_field() {
             ;;
         key)
             read -rp "$(t "$prompt_key" "$current")" input
-            [[ -n "$input" ]] && key="$input"
+            if [[ -n "$input" ]]; then
+                if [[ "$role" == "portal" ]] && is_v22_profile && ! valid_v22_key "$input"; then
+                    log_error "$(t err_invalid_key)"
+                    return 1
+                fi
+                key="$input"
+            fi
             ;;
         port|tcp_port|udp_port)
             # Empty carrier ports inherit the shared port; the previous effective
@@ -3564,6 +3832,11 @@ upgrade_nowhere() {
                 [[ "$confirm" =~ ^[Yy]$ ]] || { log_info "$(t info_cancelled)"; return; }
             fi
         fi
+        # Nowhere 2.2+ enforces hex Portal keys and mandatory certificate
+        # verification; existing Portal configs are migrated automatically.
+        if ! version_ge "$installed_version" "2.2.0" && version_ge "$latest_version" "2.2.0"; then
+            log_warn "$(t warn_v22_incompat)"
+        fi
     fi
 
     if command -v nowhere &>/dev/null; then
@@ -3799,8 +4072,8 @@ auto_install_nowhere() {
         if [[ -t 0 && -z "$ARG_KEY" ]]; then
             echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
             echo -e "${CYAN}$(t info_key_hint)${NC}"
-            read -rp "$(t prompt_key "$key")" key_input
-            [[ -n "$key_input" ]] && key="$key_input"
+            read_key_checked "portal" "$key" || return 1
+            key="$ENTERED_KEY"
 
             local prev_port=""
             [[ -n "$existing_url" ]] && prev_port="$port"
@@ -3972,12 +4245,34 @@ show_share_uri() {
         fi
     fi
 
+    # Nowhere 2.2+ verifies Portal certificates by default: a self-signed Portal
+    # (tls=1) requires pin= in the client URL. Embed the fingerprint when the
+    # running service can provide it.
+    local fingerprint=""
+    local probe_tcp_port="${PARSE_TCP_PORT}"
+    if [[ -z "$probe_tcp_port" ]] && ! url_has_carrier_path "$server_url" && [[ -n "$PARSE_PORT" ]]; then
+        # Compact endpoint (host:port) listens on both carriers with one port.
+        probe_tcp_port="$PARSE_PORT"
+    fi
+    if is_v22_profile && [[ -n "$probe_tcp_port" ]]; then
+        local probe_url="nowhere://${key}@127.0.0.1/tcp:${probe_tcp_port}"
+        [[ "$morph_mode" == "1" ]] && probe_url=$(append_query_param "$probe_url" "morph=1")
+        fingerprint=$(get_portal_fingerprint "$probe_url")
+        if [[ -n "$fingerprint" && "$tls_mode" == "1" ]]; then
+            client_uri=$(append_query_param "$client_uri" "pin=${fingerprint}")
+        fi
+    fi
+
     if [[ -n "$node_name" ]]; then
         client_uri="${client_uri}#$(url_encode_name "$node_name")"
     fi
 
     echo -e "\n${CYAN}$(t share_title)${NC}"
     echo -e "${CYAN}$(t label_client_uri)${NC}\n${GREEN}${client_uri}${NC}\n"
+
+    if is_v22_profile && [[ -n "$fingerprint" ]]; then
+        echo -e "${CYAN}$(t label_fingerprint "${GREEN}${fingerprint}${NC}")${NC}\n"
+    fi
 
     qr_tool=$(qr_support_available || true)
     if [[ "$qr_tool" == "qrencode" ]]; then
@@ -3991,7 +4286,16 @@ show_share_uri() {
     fi
 
     if [[ "$tls_mode" == "1" ]]; then
-        log_warn "$(t warn_tls_skip)"
+        if is_v22_profile; then
+            if [[ -n "$fingerprint" ]]; then
+                log_warn "$(t warn_pin_changes)"
+            else
+                log_warn "$(t warn_pin_required)"
+                log_warn "$(t warn_pin_unavailable)"
+            fi
+        else
+            log_warn "$(t warn_tls_skip)"
+        fi
     fi
 
     echo -e "${CYAN}========================================${NC}\n"
@@ -4363,17 +4667,17 @@ $(t help_opt_help)
 $(t help_no_opt)
 
 $(t help_examples)
-  bash oh-nowhere.sh --install --key mysecret --port 2088
-  bash oh-nowhere.sh --install --key mysecret --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
-  bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --socks 127.0.0.1:1080
-  bash oh-nowhere.sh --install --type vector --key mysecret --host relay.example --up mix --down mix --socks 127.0.0.1:1080
-  bash oh-nowhere.sh --install --tcp-port 2006 --udp-port 2017 --morph 1 --key mysecret
-  bash oh-nowhere.sh --install --type portal --key relay-key --next 'origin-key@origin.example:2077' --up udp --down udp
-  bash oh-nowhere.sh --config --url 'nowhere://mysecret@relay.example:2077?up=tcp&down=tcp'
+  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --port 2088
+  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
+  bash oh-nowhere.sh --install --type vector --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --host relay.example --socks 127.0.0.1:1080
+  bash oh-nowhere.sh --install --type vector --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --host relay.example --up mix --down mix --socks 127.0.0.1:1080
+  bash oh-nowhere.sh --install --tcp-port 2006 --udp-port 2017 --morph 1 --key a1b2c3d4e5f60718293a4b5c6d7e8f90
+  bash oh-nowhere.sh --install --type portal --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --next '00112233445566778899aabbccddeeff@origin.example:2077' --up udp --down udp
+  bash oh-nowhere.sh --config --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp'
   bash oh-nowhere.sh -l en --status
   bash oh-nowhere.sh --tui
   bash oh-nowhere.sh --upgrade-script --lang en
-  bash oh-nowhere.sh --version v2.0.0 --install --key mysecret
+  bash oh-nowhere.sh --version v2.0.0 --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90
   bash oh-nowhere.sh --version v1.8.3 --install --key mysecret
 EOF
 }

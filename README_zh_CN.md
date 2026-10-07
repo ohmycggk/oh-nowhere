@@ -30,6 +30,7 @@
 * 载体模式（`tcp` / `udp` / `mix`）：2.0 映射为端点路径，1.x 仍写 `net=`
 * 独立 TCP/UDP 端口与 Morph（`--tcp-port` / `--udp-port` / `--morph`，Nowhere 2.0+）
 * Vector 与 Portal `next` 支持混合载体策略（`tcp` / `udp` / `mix`）
+* 适配 Nowhere 2.2+：Portal 密钥为 32–64 位小写十六进制字符（`nowhere generate-key`），升级时自动迁移不合规密钥，分享 URI 处理证书 pin（`pin=<sha256>`）
 * 导入 `nowhere://` 分享 URI（自动转为 `vector://`）
 * 启动 Nowhere 只读 TUI（`nowhere tui`）
 * 服务状态查看
@@ -62,6 +63,26 @@ Nowhere **2.0** 是破坏性线协议变更：ALPN 固定为 `nw2`（忽略 `alp
 `--url` 仍可导入完整端点（含 `tcp4` / `udp6` 等地址族）。Vector 必须使用具体 `--host`（禁止 `*`）。
 
 升到 2.x 时，已存 Portal 的 `net=tcp|udp` 转为 `@*/tcp:PORT` 或 `@*/udp:PORT`，`net=mix`（或缺失）保留 compact，去掉 `alpn=`，保留 `morph=`。降到 1.x 时反向映射，去掉 `morph=`，不写 `alpn`（1.x 默认 `now/1`）。TCP/UDP 端口不同无法无损还原：警告并折叠为单一端口（优先 TCP，否则 UDP）。
+
+## Nowhere 2.2（Portal 密钥与证书校验）
+
+Nowhere **2.2** 对已有 2.x 节点是破坏性运行变更：
+
+* **Portal 密钥必须为 32–64 位小写十六进制字符**（2.2.0 要求恰好 64 位，2.2.1 放宽为 32–64 位）。`next=` 上游密钥同样受限。不符合要求的 Portal **拒绝启动**。
+* **默认强制校验 Portal 证书**：客户端无法再跳过证书验证——需要地址匹配的 CA 签发证书，或使用 `pin=<sha256>`（Portal 叶证书的 SHA-256 指纹）。`tls=1`（自签）下实际上必须携带 `pin=`。
+
+本脚本已适配 2.2.1：
+
+* 新 Portal 密钥生成为 32 位小写十六进制字符（优先使用二进制自带的 `nowhere generate-key`，否则取 `/dev/urandom`）
+* `--key` 与交互式密钥输入均按 2.2 格式（32–64 位小写十六进制）校验，非法输入报错
+* 升级到 2.2 时，已存 Portal 密钥不符合要求将被**自动重新生成**并打印警告——随后请向所有客户端重新分发分享 URI；`next=` 上游密钥不合规时仅报告（密钥属于上游 Portal，无法本地改写）
+* 自签 Portal 的分享 URI 会尽量嵌入 `pin=<sha256>`：优先从服务日志读取（systemd journal，或 OpenRC / FreeBSD 的 `/var/log/nowhere.log`），也可用 `nowhere fingerprint` 获取；并根据能否取到指纹显示相应提示
+* 在 2.2 上配置 Vector 且 `pin=` 为空时，提供自动获取 Portal 证书指纹（`nowhere fingerprint`）的选项
+* 2.2 工具箱提供 `nowhere generate-key`、`nowhere fingerprint <nowhere-url>`、`nowhere probe`、`nowhere status`；脚本使用前两个
+
+**注意：** 自签证书每次 Portal 重启都会重新生成，`pin=` 随之变化，重启后需重新分发分享 URI。追求稳定请使用 `tls=2` + 真实证书。
+
+`dial` / `dial4` / `dial6`（双栈出口绑定，仅 Portal，2.2+）不作为脚本一级选项；逐项配置编辑器在修改其他字段时会原样保留它们。
 
 ## Nowhere 1.5 / 1.6 / 1.7 / 1.8 说明
 
@@ -163,7 +184,7 @@ sudo ./oh-nowhere.sh --install --lang zh
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
   --net mix \
   --tls 1 \
@@ -173,17 +194,17 @@ sudo ./oh-nowhere.sh \
 Nowhere 2.0 会生成 compact 双载体 Portal URL：
 
 ```text
-portal://change-me@:2077?tls=1
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1
 ```
 
-加 `--version v1.8.3` 则保持 1.x 形式 `portal://change-me@:2077?tls=1&net=mix`。
+加 `--version v1.8.3` 则保持 1.x 形式 `portal://change-me@:2077?tls=1&net=mix`（1.x 接受任意非空密钥文本）。
 
 独立 TCP/UDP 端口与 Morph（仅 2.0+）：
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --tcp-port 2006 \
   --udp-port 2017 \
   --morph 1 \
@@ -191,7 +212,7 @@ sudo ./oh-nowhere.sh \
 ```
 
 ```text
-portal://change-me@*/tcp:2006/udp:2017?tls=1&morph=1
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*/tcp:2006/udp:2017?tls=1&morph=1
 ```
 
 安装为 Vector（本地 SOCKS5 客户端）：
@@ -200,7 +221,7 @@ portal://change-me@*/tcp:2006/udp:2017?tls=1&morph=1
 sudo ./oh-nowhere.sh \
   --install \
   --type vector \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --host relay.example \
   --port 2077 \
   --up tcp \
@@ -217,7 +238,7 @@ sudo ./oh-nowhere.sh \
 sudo ./oh-nowhere.sh \
   --install \
   --type vector \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --host relay.example \
   --port 2077 \
   --up mix \
@@ -231,7 +252,7 @@ sudo ./oh-nowhere.sh \
 ```bash
 sudo ./oh-nowhere.sh \
   --config \
-  --url 'nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
+  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
   --socks 127.0.0.1:1080 \
   --lang zh
 ```
@@ -242,9 +263,9 @@ sudo ./oh-nowhere.sh \
 sudo ./oh-nowhere.sh \
   --install \
   --type portal \
-  --key relay-key \
+  --key b1c2d3e4f5a60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --next 'origin-key@origin.example:2077' \
+  --next '00112233445566778899aabbccddeeff@origin.example:2077' \
   --up tcp \
   --down tcp \
   --lang zh
@@ -253,10 +274,10 @@ sudo ./oh-nowhere.sh \
 2.0 生成：
 
 ```text
-portal://relay-key@:2077?tls=1&next=origin-key@origin.example:2077&up=tcp&down=tcp
+portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?tls=1&next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
 ```
 
-`next=` 也可使用显式路径，例如 `origin-key@origin.example/tcp:2077`。1.x 链式 Portal 仍写 `net=mix`，默认 `up`/`down` 为 `udp`。
+`next=` 也可使用显式路径，例如 `00112233445566778899aabbccddeeff@origin.example/tcp:2077`。1.x 链式 Portal 仍写 `net=mix`，默认 `up`/`down` 为 `udp`。
 
 ## 安装指定版本
 
@@ -266,7 +287,7 @@ portal://relay-key@:2077?tls=1&next=origin-key@origin.example:2077&up=tcp&down=t
 sudo ./oh-nowhere.sh \
   --install \
   --version v2.0.0 \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
   --lang zh
 ```
@@ -277,7 +298,7 @@ sudo ./oh-nowhere.sh \
 sudo ./oh-nowhere.sh \
   --install \
   --version v1.8.3 \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
   --lang zh
 ```
@@ -306,7 +327,7 @@ sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang zh
 中继 Portal 可直接将流量转发至下一跳 Portal，无需 loopback SOCKS5：
 
 ```text
-portal://relay-key@:2077?next=origin-key@origin.example:2077&up=tcp&down=tcp
+portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
 ```
 
 交互配置会询问出站模式：`none`、`socks` 或 `next`；选择 `next` 时继续配置上游载体及可选 `mux` / `sni` / `pin`。
@@ -323,14 +344,14 @@ portal://relay-key@:2077?next=origin-key@origin.example:2077&up=tcp&down=tcp
 sudo ./oh-nowhere.sh \
   --config \
   --type portal \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
   --net mix \
   --tls 1 \
   --lang zh
 ```
 
-自签模式下客户端须跳过证书校验；分享 URI 不含 `sni`。
+自签模式在 Nowhere 2.2+ 下客户端必须设置 `pin=<sha256>`（证书校验为强制，无法跳过）；分享 URI 不含 `sni`。`--share` 输出会在可获取指纹时（服务日志或 `nowhere fingerprint`）把 Portal 当前指纹以 `pin=` 嵌入；自签证书每次 Portal 重启都会重新生成，重启后需重新分发分享 URI。1.x 下客户端改为跳过证书校验。需要稳定免 pin 的场景请使用 `tls=2` + 真实证书。
 
 ### 自定义证书
 
@@ -340,7 +361,7 @@ sudo ./oh-nowhere.sh \
 sudo ./oh-nowhere.sh \
   --config \
   --type portal \
-  --key change-me \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
   --net mix \
   --tls 2 \
@@ -377,10 +398,13 @@ sudo ./oh-nowhere.sh \
 示例：
 
 ```text
-nowhere://change-me@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
-nowhere://change-me@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
-nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f5#Nowhere-US-203
 ```
+
+最后一条为 2.2 自签 Portal：`pin=<sha256>` 即 Portal 证书指纹（64 位小写十六进制字符，Portal 每次重启后变化）。
 
 * 双载体 compact Portal → `host:port`。`up`/`down` 哪一侧是 `mix` 就只把那一侧写成 `udp`（`net=mix` 时两侧都是 `mix`，所以是 `up=udp&down=udp`）；显式或拆端口使用路径形式
 * 仅 TCP / 仅 UDP 端点分别分享 `up=tcp&down=tcp` 或 `up=udp&down=udp`；2.0 不会自动加 `mux=1`
@@ -390,6 +414,7 @@ nowhere://change-me@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#N
 * Portal 专用参数（`tls`、`crt`、`key`、`net`、`dial`、`rate`、`etar`、`log`、出站 `socks`、**`next`**）不会写入分享 URI
 * 链式 Portal：客户端连接本中继入口；`next=` 仅服务端配置
 * 1.x 下非默认 `alpn` 会复制到分享 URI；2.0 分享 URI 不含 `alpn`
+* Nowhere 2.2+ 且 `tls=1` 时，可获取指纹即嵌入 `pin=<sha256>`（见 [Nowhere 2.2](#nowhere-22portal-密钥与证书校验)）；该 pin 随 Portal 重启变化
 * Vector 实例下 `--share` 输出当前 `vector://` 运行 URL
 
 将 `nowhere://` 分享 URI 粘贴到配置 / `--url` 可在本地运行 Vector。
@@ -424,7 +449,7 @@ sudo ./oh-nowhere.sh [选项]
 | `--uninstall`               | 卸载 Nowhere |
 | `--type <portal\|vector>`   | 服务角色，默认 `portal` |
 | `--url <uri>`               | 导入 `portal://`、`vector://` 或 `nowhere://` |
-| `-k`, `--key <密钥>`        | 共享密钥 |
+| `-k`, `--key <密钥>`        | 共享密钥（Nowhere 2.2+ Portal 密钥：32–64 位小写十六进制） |
 | `-p`, `--port <端口>`       | 监听端口，默认 `2077` |
 | `--alpn <alpn>`             | 1.x TLS/QUIC ALPN（默认 `now/1` 不写入）；2.0 忽略（固定 `nw2`） |
 | `--host <hostname>`         | Portal：分享/SNI 主机；Vector：Portal 主机 |
@@ -442,7 +467,7 @@ sudo ./oh-nowhere.sh [选项]
 | `--down <tcp\|udp\|mix>`    | 下行载体（2.x 默认 `tcp`，1.x 默认 `udp`） |
 | `--mux <0\|1>`              | 方向为 `tcp` 或 `mix` 时的 TLS Mux（2.x 省略/默认 `0`；1.x 的 `tcp/tcp` 默认 `1`） |
 | `--sni <名称>`              | 证书名（Vector 或 Portal `next` 上游） |
-| `--pin <sha256>`            | 证书固定（Vector 或 Portal `next` 上游） |
+| `--pin <sha256>`            | 证书固定（Nowhere 2.2+：`tls=1` 自签 Portal 必需；否则用于 Vector 或 `next` 上游） |
 | `-v`, `--version <版本>`    | 安装指定 release（例如 `v2.0.0` 或 `v1.8.3`） |
 | `-l`, `--lang <en\|zh\|ru>` | 脚本语言，默认 `zh` |
 | `-h`, `--help`              | 显示帮助 |
@@ -600,10 +625,10 @@ sudo ./oh-nowhere.sh --share --lang zh
 
 ## 安全说明
 
-* 使用强共享密钥。
+* Nowhere 2.2+ 请使用生成的 Portal 密钥：32–64 位小写十六进制字符（`nowhere generate-key`）。不合规密钥的 Portal 会拒绝启动；脚本在升级时自动重新生成此类密钥并打印警告。
 * 勿公开 Portal URL。
 * 长期公网服务建议 `tls=2` + 有效证书 + `--host` 配置 SNI。
-* `tls=1` 时客户端须跳过证书校验。
+* Nowhere 2.2+ 且 `tls=1` 时，请随分享 URI 分发 `pin=<sha256>`（无法跳过证书校验）；该 pin 在 Portal 每次重启后变化。1.x 下客户端改为跳过证书校验。
 * Vector 入站 SOCKS 若暴露于本机以外，须配合认证与网络策略。
 * 生产环境运行前请审阅脚本。
 
