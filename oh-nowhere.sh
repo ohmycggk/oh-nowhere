@@ -1820,21 +1820,22 @@ load_portal_outbound_from_url() {
 
     local raw
     raw=$(get_query_param "$url" "socks")
-    [[ -n "$raw" ]] && PORTAL_SOCKS=$(url_decode_simple "$raw")
+    if [[ -n "$raw" ]]; then PORTAL_SOCKS=$(url_decode_simple "$raw"); fi
     raw=$(get_query_param "$url" "next")
-    [[ -n "$raw" ]] && PORTAL_NEXT=$(url_decode_simple "$raw")
+    if [[ -n "$raw" ]]; then PORTAL_NEXT=$(url_decode_simple "$raw"); fi
     raw=$(get_query_param "$url" "up")
-    [[ -n "$raw" ]] && PORTAL_UP="$raw"
+    if [[ -n "$raw" ]]; then PORTAL_UP="$raw"; fi
     raw=$(get_query_param "$url" "down")
-    [[ -n "$raw" ]] && PORTAL_DOWN="$raw"
+    if [[ -n "$raw" ]]; then PORTAL_DOWN="$raw"; fi
     raw=$(get_query_param "$url" "mux")
-    [[ -n "$raw" ]] && PORTAL_MUX="$raw"
+    if [[ -n "$raw" ]]; then PORTAL_MUX="$raw"; fi
     raw=$(get_query_param "$url" "sni")
-    [[ -n "$raw" ]] && PORTAL_SNI=$(url_decode_simple "$raw")
+    if [[ -n "$raw" ]]; then PORTAL_SNI=$(url_decode_simple "$raw"); fi
     raw=$(get_query_param "$url" "pin")
-    [[ -n "$raw" ]] && PORTAL_PIN=$(url_decode_simple "$raw")
+    if [[ -n "$raw" ]]; then PORTAL_PIN=$(url_decode_simple "$raw"); fi
     raw=$(get_query_param "$url" "morph")
-    [[ -n "$raw" ]] && PORTAL_MORPH="$raw"
+    if [[ -n "$raw" ]]; then PORTAL_MORPH="$raw"; fi
+    return 0
 }
 
 collect_portal_outbound_interactive() {
