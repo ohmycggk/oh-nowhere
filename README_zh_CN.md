@@ -8,113 +8,30 @@
 
 [Nowhere](https://github.com/NodePassProject/Nowhere) 的一键安装、升级与管理脚本。
 
-`oh-nowhere` 面向轻量 Linux 与 FreeBSD 服务器，简化 Nowhere Portal / Vector 部署：安装最新二进制、生成 Portal 或 Vector URL、写入系统服务、管理服务生命周期、启动只读 TUI，并输出客户端分享 URI。默认安装目标为 Nowhere **2.0+**；仍可用 1.x 维护旧节点。
+`oh-nowhere` 面向轻量 Linux 与 FreeBSD 服务器，用来安装二进制、生成 Portal、Vector 或 Egress URL、写入系统服务、管理服务生命周期，并输出客户端分享 URI。全新安装跟随最新稳定版（Nowhere 3 / nw3）。已经装好的 2.x 节点留在 2.x 升级，不会自行跨到 nw3。不带版本号时，1.x 会升到最新 2.x；要留在 1.x，用 `--version` 或菜单项 3。
 
 ## 功能特性
 
-* Nowhere 一键安装（默认最新 2.x）
-* 升级到上游最新版本
-* 安装指定 release，含 1.x 维护版本
-* 从 GitHub releases 交互式选择版本
-* 交互式配置菜单
-* 按字段修改当前配置（菜单项 5），保存后自动重启服务生效
-* 菜单头部显示 Nowhere 服务运行状态
-* 交互配置与修改时进行端口占用检测
-* 非交互 CLI，便于自动化部署
-* systemd、OpenRC、FreeBSD rc.d 服务支持
-* 支持 Debian、Ubuntu、Alpine，以及 FreeBSD（仅 2.0+）
-* x86_64 / aarch64 架构检测
-* Linux 自动选择 GNU libc / musl；FreeBSD 使用 `unknown-freebsd` 资产
-* Portal 或 Vector 角色选择
-* Portal 出站 SOCKS5、原生 Portal 链式转发（`next=`）、Vector 入站 SOCKS5
-* 载体模式（`tcp` / `udp` / `mix`）：2.0 映射为端点路径，1.x 仍写 `net=`
-* 独立 TCP/UDP 端口与 Morph（`--tcp-port` / `--udp-port` / `--morph`，Nowhere 2.0+）
-* Vector 与 Portal `next` 支持混合载体策略（`tcp` / `udp` / `mix`）
-* 适配 Nowhere 2.2+：Portal 密钥为 32–64 位小写十六进制字符（`nowhere generate-key`），升级时自动迁移不合规密钥，分享 URI 处理证书 pin（`pin=<sha256>`）
-* 导入 `nowhere://` 分享 URI（自动转为 `vector://`）
-* 启动 Nowhere 只读 TUI（`nowhere tui`）
-* 服务状态查看
-* Portal 客户端分享 URI（`nowhere://`）
-* 可选二维码支持
+* 一键安装最新稳定版（nw3）；已安装的 2.x 留在 2.x 升级，不自行跨到 nw3
+* 安装指定 release，也可从 GitHub releases 交互选择
+* 交互式菜单与非交互 CLI
+* 按字段修改当前配置，保存后自动重启；配置时检测端口占用
+* systemd、OpenRC、FreeBSD rc.d
+* Debian、Ubuntu、Alpine，以及 FreeBSD（仅 Nowhere 2.0+）
+* x86_64 / aarch64；Linux 自动选择 GNU libc 或 musl
+* Portal、Vector，以及 nw3 的 Egress
+* Portal 分享 URI（`nowhere://`）与可选二维码
+* 2.x 只读 TUI；nw3 改为 `nowhere status`
 * 脚本界面支持中文、英文、俄文
-
-## Nowhere 2.0（默认）与 1.x 维护
-
-Nowhere **2.0** 是破坏性线协议变更：ALPN 固定为 `nw2`（忽略 `alpn=`），Portal 的 `net=` 被忽略（载体由端点路径决定），1.x 对端无法互通。本脚本默认安装 GitHub 最新 2.x。用 `--version v1.8.3` 或菜单项 3 保留 1.x 节点；默认升级目标不会改回 1.8。
-
-* Portal 与客户端必须同主版本（`now/1` 与 `nw2` 不能互通）
-* 交互式跨主版本升级/降级会先确认；`--upgrade` / `--install` 只打警告后继续
-* `--tcp-port`、`--udp-port`、`--morph` 仅 2.0+（1.x profile 下传入会报错退出）
-* 2.0 下 `--alpn` 警告并忽略（与 `--spec` / `--pool` 相同）
-* 2.0 新配置默认 `up`/`down` 为 `tcp`，省略 mux（规范值 `0`）。1.x 保持默认 `udp`，且 `tcp/tcp` 仍自动补 `mux=1`
-* 未拆端口时 `--port` 仍为共享默认（**2077**）
-* FreeBSD 安装包仅 2.0+；在 FreeBSD 上安装 1.x 会直接拒绝。若某 2.x tag 没有 `nowhere-<arch>-unknown-freebsd.tar.gz`，下载失败会写明 tag 与期望文件名
-
-`--net mix|tcp|udp` 仍作为操作员接口；2.0 不再写入 `net=`，而是映射为端点：
-
-| `--net` / 端口 | Portal 监听 URL |
-| -------------- | --------------- |
-| `mix`（默认同端口） | `portal://KEY@:2077?tls=1`（TCP+UDP 同端口） |
-| `tcp` | `portal://KEY@*/tcp:2077?tls=1` |
-| `udp` | `portal://KEY@*/udp:2077?tls=1` |
-| `--tcp-port 2006 --udp-port 2017` | `portal://KEY@*/tcp:2006/udp:2017?tls=1` |
-| 两端口相同 | compact `KEY@:PORT` |
-
-`--url` 仍可导入完整端点（含 `tcp4` / `udp6` 等地址族）。Vector 必须使用具体 `--host`（禁止 `*`）。
-
-升到 2.x 时，已存 Portal 的 `net=tcp|udp` 转为 `@*/tcp:PORT` 或 `@*/udp:PORT`，`net=mix`（或缺失）保留 compact，去掉 `alpn=`，保留 `morph=`。降到 1.x 时反向映射，去掉 `morph=`，不写 `alpn`（1.x 默认 `now/1`）。TCP/UDP 端口不同无法无损还原：警告并折叠为单一端口（优先 TCP，否则 UDP）。
-
-## Nowhere 2.2（Portal 密钥与证书校验）
-
-Nowhere **2.2** 对已有 2.x 节点是破坏性运行变更：
-
-* **Portal 密钥必须为 32–64 位小写十六进制字符**（2.2.0 要求恰好 64 位，2.2.1 放宽为 32–64 位）。`next=` 上游密钥同样受限。不符合要求的 Portal **拒绝启动**。
-* **默认强制校验 Portal 证书**：客户端无法再跳过证书验证——需要地址匹配的 CA 签发证书，或使用 `pin=<sha256>`（Portal 叶证书的 SHA-256 指纹）。`tls=1`（自签）下实际上必须携带 `pin=`。
-
-本脚本已适配 2.2.1：
-
-* 新 Portal 密钥生成为 32 位小写十六进制字符（优先使用二进制自带的 `nowhere generate-key`，否则取 `/dev/urandom`）
-* `--key` 与交互式密钥输入均按 2.2 格式（32–64 位小写十六进制）校验，非法输入报错
-* 升级到 2.2 时，已存 Portal 密钥不符合要求将被**自动重新生成**并打印警告——随后请向所有客户端重新分发分享 URI；`next=` 上游密钥不合规时仅报告（密钥属于上游 Portal，无法本地改写）
-* 自签 Portal 的分享 URI 会尽量嵌入 `pin=<sha256>`：优先从服务日志读取（systemd journal，或 OpenRC / FreeBSD 的 `/var/log/nowhere.log`），也可用 `nowhere fingerprint` 获取；并根据能否取到指纹显示相应提示
-* 在 2.2 上配置 Vector 且 `pin=` 为空时，提供自动获取 Portal 证书指纹（`nowhere fingerprint`）的选项
-* 2.2 工具箱提供 `nowhere generate-key`、`nowhere fingerprint <nowhere-url>`、`nowhere probe`、`nowhere status`；脚本使用前两个
-
-**注意：** 自签证书每次 Portal 重启都会重新生成，`pin=` 随之变化，重启后需重新分发分享 URI。追求稳定请使用 `tls=2` + 真实证书。
-
-`dial` / `dial4` / `dial6`（双栈出口绑定，仅 Portal，2.2+）不作为脚本一级选项；逐项配置编辑器在修改其他字段时会原样保留它们。
-
-## Nowhere 1.5 / 1.6 / 1.7 / 1.8 说明
-
-Nowhere **1.5** 引入新线协议并移除 Portal 的 `spec` 参数。Nowhere **1.6** 新增只读 TUI 与结构化本地遥测（仅 Linux）。线协议与 1.5.x 相同。Nowhere **1.7** 新增 Portal 原生链式转发（`next=`）、EVENT / 遥测 / TUI 中的上游 RTT，以及七跳转发预算。Nowhere **1.8** 以 TLS Mux（`mux=0|1`）取代原先 `tcp/tcp` 场景下的 `pool=<n>` 预热连接池，`pool` 参数已移除。Nowhere **1.8.3** 新增混合载体策略：Vector 与 Portal `next` 的 `up`/`down` 可为 `tcp`、`udp` 或 `mix`。
-
-本脚本已适配上述版本：
-
-* Portal URL 不再包含 `spec=`
-* 支持自定义 `alpn`（默认 `now/1` 不写入 URL）
-* 分享链接仍为带 `up` / `down` 载体的 `nowhere://` 导入 URI
-* `vector://` 运行原生 SOCKS5 客户端；本脚本可生成并管理
-* 粘贴或导入 `nowhere://` 时自动转为 `vector://`（缺 `socks=` 时自动补全）
-* 升级时会从 `/etc/nowhere/url.conf` 剥离已废弃的 `spec=`
-* 升级时会剥离已废弃的 `pool=`，并在 `tcp/tcp` 且缺少 `mux=` 时写入 `mux=1`
-* 已存储的 `nowhere://` 运行 URL 会迁移为 `vector://`
-* 菜单项 10 / `--tui` 启动只读仪表盘（1.7 显示上游 RTT）
-* Portal 中继可通过 `next=` 原生链式转发（与出站 `socks=` 互斥）
-* 原生链路上每个 Portal 须支持 Nowhere 1.7.0 HOPS 语义
-* 1.5+ 线协议要求 Portal 与客户端一并升级
-* Vector 与 Portal `next` 上游使用 `mux=0|1` 取代 `pool=`（1.8+）
-* Vector 与 Portal `next` 的 `up`/`down` 支持 `tcp|udp|mix`（1.8.3+）；`mix/mix` 按流解析为 `tcp/tcp` 或 `udp/udp`
-* 方向为 `tcp` 或 `mix` 时询问 Mux；`udp/udp` 不写入 `mux`（规范值为 `0`）
-* 分享 URI 的 `up`、`down` 分开处理：该侧为 `mix` 时写成 `udp`，`tcp`/`udp` 保持不变。Portal `net=mix` 两侧都是 `mix`，因此是 `up=udp&down=udp`
 
 ## 支持系统
 
-| 系统         | 初始化     | 包管理器 | 说明 |
-| ------------ | ---------- | -------- | ---- |
-| Debian       | systemd    | apt      | 1.x 与 2.x |
-| Ubuntu       | systemd    | apt      | 1.x 与 2.x |
-| Alpine Linux | OpenRC     | apk      | 1.x 与 2.x |
-| FreeBSD      | rc.d       | pkg      | 仅 Nowhere 2.0+（`x86_64` / `aarch64`） |
+| 系统         | 初始化  | 包管理器 | 说明 |
+| ------------ | ------- | -------- | ---- |
+| Debian       | systemd | apt      | 1.x、2.x 与 3.x |
+| Ubuntu       | systemd | apt      | 1.x、2.x 与 3.x |
+| Alpine Linux | OpenRC  | apk      | 1.x、2.x 与 3.x |
+| FreeBSD      | rc.d    | pkg      | 仅 Nowhere 2.0+（`x86_64` / `aarch64`） |
 
 支持架构：
 
@@ -152,7 +69,7 @@ sudo ./oh-nowhere.sh --lang zh
 7. 停止服务
 8. 重启服务
 9. 查看状态
-10. 启动 Nowhere TUI
+10. TUI / 实例状态
 
 11. 显示分享 URI
 12. 安装二维码支持库
@@ -163,199 +80,147 @@ sudo ./oh-nowhere.sh --lang zh
 0. 退出
 ```
 
-菜单头部会显示已安装的 Nowhere 版本和服务运行状态（运行中 / 已停止 / 未安装）。
+菜单头部会显示 oh-nowhere 脚本版本、已安装的 Nowhere 版本和服务运行状态（运行中 / 已停止 / 未安装）。
 
-## 修改当前配置
+## 默认安装（Nowhere 3）
 
-菜单项 **5** 打开按字段编辑的交互界面，直接修改已保存的运行 URL。界面逐项列出当前所有协议参数（角色、密钥、端口、承载方式 `net`、TLS 模式、`morph`/`alpn`、上行/下行载体、`mux`、SOCKS / `next=` 出站、SNI、SPKI pin、分享地址、节点名称），输入编号即可只修改对应项；直接回车或输入 `q` 保存并自动重启服务使修改生效。编辑器不管理的 URL 参数（如 `rate`/`etar`/`dial`/`log`）会原样保留。
+不带 `--version` 的全新安装使用 nw3。本机已经装有 Nowhere 时，`--install` 转入升级，并遵守下文「升级与跨线」的目标版本规则。三种角色的密钥都是恰好 32 位小写十六进制（优先 `nowhere generate-key`，否则取 `/dev/urandom`）。`morph` 默认为 `1`，并且总会写入 URL。`tls` 只接受 `1` 或 `2`。Portal 通配主机写成 `*`。
 
-端口字段会与本地监听表（`ss`/`sockstat`/`netstat`）做冲突检测：端口已被占用时会给出警告，必须确认后才允许使用。交互安装与配置流程中同样会进行该检查。
+nw3 二进制会静默忽略不认识的参数。脚本在写入前校验。二进制已是 nw3，而 Portal 或 Vector 的 `url.conf` 仍含 `up`、`down`、`mux`、`next`、`socks`、`net`、`alpn`、`log`、`pool`、`spec` 时，启动器直接拒绝启动。
 
-## 一键安装
-
-默认 Portal 参数安装：
+### Portal
 
 ```bash
 sudo ./oh-nowhere.sh --install --lang zh
 ```
 
-自定义 Portal 参数：
-
-```bash
-sudo ./oh-nowhere.sh \
-  --install \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --port 2077 \
-  --net mix \
-  --tls 1 \
-  --lang zh
-```
-
-Nowhere 2.0 会生成 compact 双载体 Portal URL：
+默认同端口 `mix`。URL 形态如下（密钥由脚本生成，下面这串只是 32 位的例子）：
 
 ```text
-portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=1&out=direct&morph=1
 ```
 
-加 `--version v1.8.3` 则保持 1.x 形式 `portal://change-me@:2077?tls=1&net=mix`（1.x 接受任意非空密钥文本）。
+`*:2077` 表示 TCP 与 UDP 监听同一端口。出口用 `--out`：
 
-独立 TCP/UDP 端口与 Morph（仅 2.0+）：
+| `--out` | 运行 URL 中的出口 |
+| ------- | ----------------- |
+| `direct`（默认） | `out=direct` |
+| `socks` | `out=127.0.0.1:1080`（地址来自 `--socks`，可带 `user:pass@`） |
+| `egress` | `out=egress`（端点必须包含 UDP） |
+
+`--socks` 在 Portal 上是 `--out socks` 的兼容别名。`--next` 在 nw3 下直接报错。
+
+载体：
+
+| 写法 | Portal 端点 |
+| ---- | ----------- |
+| `--net mix`（默认，未拆端口） | `*:2077` |
+| `--net tcp` | `*/tcp:2077` |
+| `--net udp` | `*/udp:2077` |
+| `--tcp-port 2006 --udp-port 2017` | `*/tcp:2006/udp:2017` |
+
+两端口相同则收成 `*:PORT`。`--net tcp` 同时给 `--udp-port`，或 `--net udp` 同时给 `--tcp-port`，会直接失败。
+
+SOCKS5 上游：
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --tcp-port 2006 \
-  --udp-port 2017 \
-  --morph 1 \
+  --port 2077 \
+  --socks 127.0.0.1:1080 \
   --lang zh
 ```
 
 ```text
-portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*/tcp:2006/udp:2017?tls=1&morph=1
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=1&out=127.0.0.1:1080&morph=1
 ```
 
-安装为 Vector（本地 SOCKS5 客户端）：
-
-```bash
-sudo ./oh-nowhere.sh \
-  --install \
-  --type vector \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --host relay.example \
-  --port 2077 \
-  --up tcp \
-  --down tcp \
-  --socks 127.0.0.1:1080 \
-  --lang zh
-```
-
-2.0 的 Vector URL 使用相同端点规则（同端口 mix 为 `relay.example:2077`，或 `relay.example/tcp:PORT`）。省略时 `up`/`down` 默认为 `tcp`，不会自动补 `mux`。1.x 的 `tcp/tcp` 仍会写入 `mux=1`。
-
-安装混合载体 Vector（`mix/mix` 按流选择 `tcp/tcp` 或 `udp/udp`）：
-
-```bash
-sudo ./oh-nowhere.sh \
-  --install \
-  --type vector \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --host relay.example \
-  --port 2077 \
-  --up mix \
-  --down mix \
-  --socks 127.0.0.1:1080 \
-  --lang zh
-```
-
-导入分享 URI（`nowhere://` 自动转为 `vector://`）：
-
-```bash
-sudo ./oh-nowhere.sh \
-  --config \
-  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
-  --socks 127.0.0.1:1080 \
-  --lang zh
-```
-
-安装链式 Portal 中继（Nowhere 1.7+）：
+把流量交给已注册的 Egress（Portal 与 Egress 使用同一把密钥）：
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
   --type portal \
-  --key b1c2d3e4f5a60718293a4b5c6d7e8f90 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --next '00112233445566778899aabbccddeeff@origin.example:2077' \
-  --up tcp \
-  --down tcp \
+  --out egress \
   --lang zh
 ```
-
-2.0 生成：
 
 ```text
-portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?tls=1&next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=1&out=egress&morph=1
 ```
 
-`next=` 也可使用显式路径，例如 `00112233445566778899aabbccddeeff@origin.example/tcp:2077`。1.x 链式 Portal 仍写 `net=mix`，默认 `up`/`down` 为 `udp`。
+### Vector
 
-## 安装指定版本
-
-命令行安装指定上游版本：
+Vector 是本地 SOCKS5 客户端，端点恰好一个载体。`--host` 必须是具体主机，不能是 `*`。
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v2.0.0 \
+  --type vector \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --host relay.example \
   --port 2077 \
+  --net tcp \
+  --socks 127.0.0.1:1080 \
   --lang zh
 ```
 
-保留或还原 1.x 节点：
+```text
+vector://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2077?in=127.0.0.1:1080&morph=1
+```
+
+`--net udp` 得到 `/udp:PORT`。`--up` / `--down` / `--mux` 只作为兼容垫片：上下行相同则取该载体（`mix` 折成 `tcp`），不一致则取 `tcp` 并告警。
+
+导入分享链接会转成 Vector。nw3 下补上 `in=`（默认 `127.0.0.1:1080`）：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?net=tcp&morph=1' \
+  --socks 127.0.0.1:1080 \
+  --lang zh
+```
+
+### Egress
+
+Egress 向 `out=egress` 的 Portal 发起出站 QUIC，不需要入站防火墙端口。
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.8.3 \
+  --type egress \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --host relay.example \
   --port 2077 \
   --lang zh
 ```
 
-升级或降级到指定版本：
-
-```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang zh
+```text
+egress://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/udp:2077?morph=1
 ```
-
-也可在菜单中选择 `12. 安装指定版本`，脚本会拉取 GitHub releases 列表；输入 `0` 选最新版，或输入对应编号。
 
 ## 服务角色
 
-配置菜单项 4 可选择 `portal` / `vector`，或粘贴 `nowhere://` / `vector://` / `portal://` URL。
+配置菜单项 4 可选 `portal` / `vector` / `egress`，也可以粘贴 `nowhere://`、`vector://`、`portal://` 或 `egress://`。同一时刻只有一种角色（一份 `url.conf`、一个 `nowhere` 服务）。
 
-| 角色 | 运行 URL | 出站 |
+| 角色 | 运行 URL | 说明 |
 | ---- | -------- | ---- |
-| `portal` | `portal://key@:port?...` 或 `portal://key@*/tcp:port[/udp:port]?...` | 可选 **出站 SOCKS**（`socks=host:port`）或 **原生链式**（`next=key@host:port` 配合 `up`/`down`/`mux`/`sni`/`pin`）；二者互斥 |
-| `vector` | `vector://key@portal-host:port?...` 或路径形式 `host/tcp:A/udp:B` | 必需 **入站** 监听（默认 `127.0.0.1:1080`） |
+| `portal` | `portal://KEY@*:2077?tls=1&out=direct&morph=1` | 出口为 `out=direct`、`out=[user:pass@]host:port` 或 `out=egress` |
+| `vector` | `vector://KEY@HOST/tcp:2077?in=127.0.0.1:1080&morph=1` | 入站监听 `in=`，端点只有一个载体 |
+| `egress` | `egress://KEY@HOST/udp:2077?morph=1` | 连到 `out=egress` 的 Portal；无入站端口 |
 
-同一时刻仅一种角色生效（单一 `url.conf` / `nowhere` 服务），需切换时请重新配置。
-
-### Portal 原生链式（1.7+）
-
-中继 Portal 可直接将流量转发至下一跳 Portal，无需 loopback SOCKS5：
-
-```text
-portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
-```
-
-交互配置会询问出站模式：`none`、`socks` 或 `next`；选择 `next` 时继续配置上游载体及可选 `mux` / `sni` / `pin`。
-
-可通过 `--url` 导入已有链式 Portal URL，或在配置菜单粘贴 `portal://...?next=...`；重新配置会保留 `next=` 及上游参数。
+2.x 的 `socks=`、`next=` 与双载体路径见文末「旧协议线」。
 
 ## TLS 模式（Portal）
 
-### 自签 TLS
+默认 `tls=1`（自签）。nw3 不接受 `tls=0`。
 
-默认 `tls=1`。
+Nowhere 2.2+ 与 nw3 默认校验证书，客户端不能跳过。自签 Portal 的分享 URI 会在拿得到指纹时写入 `pin=<sha256>`（64 位小写十六进制）。指纹来自服务日志（systemd journal，或 OpenRC / FreeBSD 的 `/var/log/nowhere.log`），也可以用 `nowhere fingerprint`。自签证书每次 Portal 重启都会重新生成，重启后需要把新的分享 URI 发给客户端。1.x 客户端改为跳过证书校验。
 
-```bash
-sudo ./oh-nowhere.sh \
-  --config \
-  --type portal \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --port 2077 \
-  --net mix \
-  --tls 1 \
-  --lang zh
-```
-
-自签模式在 Nowhere 2.2+ 下客户端必须设置 `pin=<sha256>`（证书校验为强制，无法跳过）；分享 URI 不含 `sni`。`--share` 输出会在可获取指纹时（服务日志或 `nowhere fingerprint`）把 Portal 当前指纹以 `pin=` 嵌入；自签证书每次 Portal 重启都会重新生成，重启后需重新分发分享 URI。1.x 下客户端改为跳过证书校验。需要稳定免 pin 的场景请使用 `tls=2` + 真实证书。
-
-### 自定义证书
-
-使用 `tls=2` 并提供证书与私钥；设置 `--host` 以便分享 URI 写入匹配的 `sni`：
+要固定指纹、长期公开服务，使用 `tls=2` 和真实证书，并用 `--host` 让分享 URI 带上匹配的 `sni`：
 
 ```bash
 sudo ./oh-nowhere.sh \
@@ -363,7 +228,6 @@ sudo ./oh-nowhere.sh \
   --type portal \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --net mix \
   --tls 2 \
   --cert /etc/nowhere/cert.pem \
   --keyfile /etc/nowhere/key.pem \
@@ -371,63 +235,63 @@ sudo ./oh-nowhere.sh \
   --lang zh
 ```
 
-## 载体模式（Portal）
-
-`--net` 用于声明 Portal 载体，默认仍为 `mix`。
-
-| 模式  | 2.0 Portal 端点 | 1.x 查询参数 | 分享 URI 载体 |
-| ----- | --------------- | ------------ | ------------- |
-| `mix` | compact `KEY@:PORT`（TCP+UDP 同端口） | `net=mix` | `up=udp&down=udp` |
-| `tcp` | `KEY@*/tcp:PORT` | `net=tcp` | `up=tcp&down=tcp`（1.x 另加 `mux=1`） |
-| `udp` | `KEY@*/udp:PORT` | `net=udp` | `up=udp&down=udp` |
-
-`--tcp-port` / `--udp-port`（仅 2.0+）覆盖 `--net` + `--port`：
-
-* 两个都设且相同 → compact `HOST:PORT`
-* 两个都设且不同 → `HOST/tcp:A/udp:B`
-* 只设 `--tcp-port` → `HOST/tcp:A`
-* 只设 `--udp-port` → `HOST/udp:B`
-* 都未设 → 按 `--net` + `--port`
-
-冲突直接失败：`--net tcp` 同时给 `--udp-port`、`--net udp` 同时给 `--tcp-port`，或 `up`/`down`/`mix` 选了端点未声明的载体。
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem&out=direct&morph=1
+```
 
 ## 客户端分享 URI
 
-菜单项 11 / `--share` 在 Portal 角色下输出 `nowhere://` 导入 URI（Vector 不适用）。
-
-示例：
+菜单项 11 / `--share` 在 Portal 上为每个载体各输出一条 `nowhere://`。二维码优先编码 TCP 那条。自签（`tls=1`）且能取到指纹时，链接里带 `pin=`：
 
 ```text
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f5#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=tcp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=udp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
 ```
 
-最后一条为 2.2 自签 Portal：`pin=<sha256>` 即 Portal 证书指纹（64 位小写十六进制字符，Portal 每次重启后变化）。
+`tls=2` 且设置了分享主机时，链接带 `sni`，不依赖 `pin`。`pin=` 的含义与重启后失效，见上文「TLS 模式」。
 
-* 双载体 compact Portal → `host:port`。`up`/`down` 哪一侧是 `mix` 就只把那一侧写成 `udp`（`net=mix` 时两侧都是 `mix`，所以是 `up=udp&down=udp`）；显式或拆端口使用路径形式
-* 仅 TCP / 仅 UDP 端点分别分享 `up=tcp&down=tcp` 或 `up=udp&down=udp`；2.0 不会自动加 `mux=1`
-* Portal `morph=1` 会写入分享 URI
-* 主机优先 `/etc/nowhere/host.conf`（或 `--host`），否则使用检测到的公网 IP
-* 节点名以 percent-encoded `#fragment` 附加；用 `--name` 设置（默认 `Nowhere-<国家>-<IP首段>`，存于 `/etc/nowhere/name.conf`）
-* Portal 专用参数（`tls`、`crt`、`key`、`net`、`dial`、`rate`、`etar`、`log`、出站 `socks`、**`next`**）不会写入分享 URI
-* 链式 Portal：客户端连接本中继入口；`next=` 仅服务端配置
-* 1.x 下非默认 `alpn` 会复制到分享 URI；2.0 分享 URI 不含 `alpn`
-* Nowhere 2.2+ 且 `tls=1` 时，可获取指纹即嵌入 `pin=<sha256>`（见 [Nowhere 2.2](#nowhere-22portal-密钥与证书校验)）；该 pin 随 Portal 重启变化
-* Vector 实例下 `--share` 输出当前 `vector://` 运行 URL
+* 主机优先 `/etc/nowhere/host.conf`（或 `--host`），否则用检测到的公网 IP
+* 节点名以 percent-encoded `#fragment` 附在末尾；用 `--name` 设置（默认 `Nowhere-<国家>-<IP首段>`，存于 `/etc/nowhere/name.conf`）
+* `tls`、`crt`、`key`、`out`、`dial`、`rate`、`etar`、`log` 不写入分享 URI
+* Vector 与 Egress 只打印运行 URL，没有客户端导入链接
+* 把 `nowhere://` 粘贴到配置或 `--url`，可在本机跑成 Vector
 
-将 `nowhere://` 分享 URI 粘贴到配置 / `--url` 可在本地运行 Vector。
+2.x 分享链接使用 `up` / `down`，见文末「旧协议线」。
 
-## Nowhere TUI
+## 修改当前配置
 
-菜单项 10 / `--tui` 执行：
+菜单项 **5** 按字段编辑已保存的运行 URL。输入编号只改那一项，直接回车或输入 `q` 保存并自动重启。
 
-```bash
-nowhere tui
-```
+nw3 下列出的字段包括：密钥、端口、载体（Vector 只有一个 `tcp` 或 `udp`）、TLS、`morph`、Portal 出口 `out=`（`direct` / `socks` / `egress`）、SOCKS 上游、Vector 的 `in=`、Egress 的主机 / UDP 端口 / SNI / pin、分享地址、节点名称。编辑器不管理的参数（如 `rate` / `etar` / `dial` / `log`）原样保留。
 
-仪表盘发现本地 Portal/Vector 实例并显示实时指标；Nowhere 1.7+ 含上游 RTT（`ping_ms`）。只读，不启停或改配置。
+端口会对照本地监听表（`ss` / `sockstat` / `netstat`）。已被占用时给出警告，确认后才能使用。交互安装与配置同样做这项检查。
+
+## 升级与跨线
+
+不带 `--version` 的 `--upgrade`：
+
+* 已安装的 2.x 留在 2.x：取最近 30 个 release 里最新的 `v2.*`，没有则用 `v2.2.1`
+* 已安装的 1.x 在不指定版本时也指向这个最新 `v2.*`，不会留在 1.x
+* 已安装的 nw3，以及全新安装，跟随最新稳定版
+
+菜单项 3 列出 GitHub releases。输入 `0` 时，全新安装跟随最新稳定版；已经安装的 2.x 仍去最新 2.x，已经安装的 1.x 也指向最新 2.x。输入编号则安装列表里的那一版；跨到另一主版本时仍要确认。
+
+1.x 升到 2.x 会先警告。交互模式下确认后继续；`--upgrade` / `--install` 打印警告后继续。
+
+nw2 与 nw3 之间切换是另一道门槛。显式 `--version` 不会跳过它。下载之前先预检 `url.conf`：
+
+* 迁往 nw3：Portal 带 `next=` 则中止（nw3 没有对应能力，请先改成 Vector，或改用 `out=socks` / `out=egress`）
+* 迁回 nw2：角色是 Egress，或 Portal 使用 `out=egress`，则中止
+
+预检通过后：
+
+* 交互菜单里输入 `MIGRATE`
+* `--upgrade` / `--install` 需要同时带上 `--allow-protocol-breaking-upgrade`（不带 `--version` 时，该开关会直接跳到最新 3.x）
+
+确认之后，脚本把 `url.conf` 备份为 `url.conf.nw<旧主版本>.bak.<时间戳>`，二进制备份为 `nowhere.bak.<时间戳>`，再迁移 URL：
+
+* nw2 → nw3：`socks=` 变为 `out=`（没有 `socks` 则 `out=direct`）；空主机 `@:PORT` 变为 `*:PORT`；Vector 的 `socks=` 变为 `in=`，多载体收成一个（`mix` 或上下行不一致时取 `tcp` 并告警）。`morph` 显式写出（nw2 省略时按 `0`）。Portal 密钥不是 32 位小写十六进制时重新生成，并提示重发分享 URI；Vector 密钥属于对端 Portal，只告警不改写。`rate` / `etar` / `dial*` 保留，`up` / `down` / `mux` / `sni` / `pin` / `alpn` / `net` / `log` 从 Portal URL 去掉
+* nw3 → nw2：`out=direct` 去掉出口，`out=<端点>` 变回 `socks=`，`in=` 变回 `socks=`，单载体展开为 `up`=`down`。`morph=1` 保留，`morph=0` 省略
 
 ## CLI 用法
 
@@ -437,44 +301,48 @@ sudo ./oh-nowhere.sh [选项]
 
 ### 选项
 
-| 选项                        | 说明 |
-| --------------------------- | ---- |
-| `-i`, `--install`           | 一键安装、升级并启动 |
-| `-u`, `--upgrade`           | 升级 Nowhere |
-| `-c`, `--config`            | 配置服务 |
-| `-s`, `--status`            | 查看状态 |
-| `-q`, `--share`             | 显示分享 URI |
-| `--tui`                     | 启动 Nowhere TUI |
-| `--upgrade-script`          | 从 GitHub 升级本 oh-nowhere 脚本 |
-| `--uninstall`               | 卸载 Nowhere |
-| `--type <portal\|vector>`   | 服务角色，默认 `portal` |
-| `--url <uri>`               | 导入 `portal://`、`vector://` 或 `nowhere://` |
-| `-k`, `--key <密钥>`        | 共享密钥（Nowhere 2.2+ Portal 密钥：32–64 位小写十六进制） |
-| `-p`, `--port <端口>`       | 监听端口，默认 `2077` |
-| `--alpn <alpn>`             | 1.x TLS/QUIC ALPN（默认 `now/1` 不写入）；2.0 忽略（固定 `nw2`） |
-| `--host <hostname>`         | Portal：分享/SNI 主机；Vector：Portal 主机 |
-| `--name <名称>`             | 分享 URI 的 `#` 节点名 |
-| `--net <mix\|tcp\|udp>`     | 载体模式（1.x 写 `net=`；2.0 映射为端点路径；默认 `mix`） |
-| `--tcp-port <端口>`         | TLS/TCP 端口（Nowhere 2.0+，可与 UDP 不同） |
-| `--udp-port <端口>`         | QUIC/UDP 端口（Nowhere 2.0+，可与 TCP 不同） |
-| `--morph <0\|1>`            | TLS/QUIC 线形伪装（Nowhere 2.0+；默认 `0`，不写入） |
-| `--tls <1\|2>`              | Portal TLS 模式，默认 `1` |
-| `--cert <路径>`             | `tls=2` 时证书路径 |
-| `--keyfile <路径>`          | `tls=2` 时私钥路径 |
-| `--socks <地址>`            | Portal 出站或 Vector 入站 SOCKS |
-| `--next <key@host:port>`    | Portal 原生上游（与 `--socks` 互斥） |
-| `--up <tcp\|udp\|mix>`      | 上行载体（2.x 默认 `tcp`，1.x 默认 `udp`） |
-| `--down <tcp\|udp\|mix>`    | 下行载体（2.x 默认 `tcp`，1.x 默认 `udp`） |
-| `--mux <0\|1>`              | 方向为 `tcp` 或 `mix` 时的 TLS Mux（2.x 省略/默认 `0`；1.x 的 `tcp/tcp` 默认 `1`） |
-| `--sni <名称>`              | 证书名（Vector 或 Portal `next` 上游） |
-| `--pin <sha256>`            | 证书固定（Nowhere 2.2+：`tls=1` 自签 Portal 必需；否则用于 Vector 或 `next` 上游） |
-| `-v`, `--version <版本>`    | 安装指定 release（例如 `v2.0.0` 或 `v1.8.3`） |
+| 选项 | 说明 |
+| ---- | ---- |
+| `-i`, `--install` | 一键安装、升级并启动 |
+| `-u`, `--upgrade` | 升级 Nowhere |
+| `--allow-protocol-breaking-upgrade` | 确认 nw2↔nw3 跨协议线切换（迁移已存 URL） |
+| `-c`, `--config` | 配置服务 |
+| `-s`, `--status` | 查看状态 |
+| `-q`, `--share` | 显示分享 URI |
+| `--tui` | 启动 Nowhere TUI（2.x）或 `nowhere status`（nw3） |
+| `--upgrade-script` | 从 GitHub 升级本 oh-nowhere 脚本 |
+| `--uninstall` | 卸载 Nowhere |
+| `--type <portal\|vector\|egress>` | 服务角色，默认 `portal`（`egress` 需要 nw3） |
+| `--url <uri>` | 导入 `portal://`、`vector://`、`egress://` 或 `nowhere://` |
+| `-k`, `--key <密钥>` | 共享密钥（nw3：恰好 32 位小写十六进制；2.2+ Portal：32–64 位小写十六进制） |
+| `-p`, `--port <端口>` | 监听端口，默认 `2077` |
+| `--alpn <alpn>` | 1.x TLS/QUIC ALPN（默认 `now/1` 不写入）；2.0 与 nw3 警告后忽略 |
+| `--host <hostname>` | Portal：分享/SNI 主机；Vector / Egress：Portal 主机 |
+| `--name <名称>` | 分享 URI 的 `#` 节点名 |
+| `--net <mix\|tcp\|udp>` | 载体（1.x 写 `net=`；2.0 映射为端点路径；nw3 的 Vector 只用 `tcp` / `udp`；默认 `mix`） |
+| `--tcp-port <端口>` | TLS/TCP 端口（Nowhere 2.0+，可与 UDP 不同） |
+| `--udp-port <端口>` | QUIC/UDP 端口（Nowhere 2.0+；nw3 Egress 也用它） |
+| `--morph <0\|1>` | TLS/QUIC 线形伪装（Nowhere 2.0+；2.x 默认 `0` 且不写入，nw3 默认 `1` 并写入） |
+| `--tls <1\|2>` | Portal TLS 模式，默认 `1`（nw3 不接受 `0`） |
+| `--cert <路径>` | `tls=2` 时的证书路径 |
+| `--keyfile <路径>` | `tls=2` 时的私钥路径 |
+| `--socks <地址>` | Vector 入站 SOCKS；在 nw3 Portal 上等价于 `--out socks` |
+| `--out <direct\|socks\|egress>` | Portal 出口（nw3；默认 `direct`） |
+| `--next <key@host:port>` | Portal 原生上游，仅 2.x（与 `--socks` 互斥；nw3 直接拒绝） |
+| `--up <tcp\|udp\|mix>` | 上行载体（2.x 默认 `tcp`，1.x 默认 `udp`；nw3 仅作兼容垫片） |
+| `--down <tcp\|udp\|mix>` | 下行载体（2.x 默认 `tcp`，1.x 默认 `udp`；nw3 仅作兼容垫片） |
+| `--mux <0\|1>` | 方向为 `tcp` 或 `mix` 时的 TLS Mux（2.x 省略即 `0`；1.x 的 `tcp/tcp` 默认 `1`） |
+| `--sni <名称>` | 证书名（Vector、Egress，或 2.x Portal 的 `next` 上游） |
+| `--pin <sha256>` | 证书指纹（自签 Portal 的客户端必需；也可写在 Vector / Egress 上） |
+| `-v`, `--version <版本>` | 安装指定的 Nowhere release（例如 `v3.0.0`、`v2.2.1` 或 `v1.8.3`） |
+| `--script-version` | 打印本 oh-nowhere 脚本版本后退出 |
 | `-l`, `--lang <en\|zh\|ru>` | 脚本语言，默认 `zh` |
-| `-h`, `--help`              | 显示帮助 |
+| `-h`, `--help` | 显示帮助 |
 
-`--spec` 仍接受但会警告并忽略（Nowhere 1.5 已移除）。
-`--pool` 仍接受但会警告并忽略（Nowhere 1.8 已移除，请改用 `--mux`）。
-`--alpn` 在 Nowhere 2.0 下会警告并忽略（固定 ALPN `nw2`）。
+`--spec` 仍接受，但会警告并忽略（Nowhere 1.5 已移除）。
+`--pool` 仍接受，但会警告并忽略（Nowhere 1.8 已移除，请改用 `--mux`）。
+`--alpn` 在 2.0 与 nw3 上警告并忽略。
+`--next` 在 nw3 上直接报错。
 
 ## 常用命令
 
@@ -484,16 +352,16 @@ sudo ./oh-nowhere.sh [选项]
 sudo ./oh-nowhere.sh --status --lang zh
 ```
 
-升级：
+留在当前协议线上升级：
 
 ```bash
 sudo ./oh-nowhere.sh --upgrade --lang zh
 ```
 
-安装指定版本：
+确认后跨到 nw3：
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.8.3 --lang zh
+sudo ./oh-nowhere.sh --upgrade --allow-protocol-breaking-upgrade --lang zh
 ```
 
 重新配置：
@@ -508,7 +376,7 @@ sudo ./oh-nowhere.sh --config --lang zh
 sudo ./oh-nowhere.sh --share --lang zh
 ```
 
-启动 TUI：
+启动 TUI（2.x）或状态快照（nw3）：
 
 ```bash
 sudo ./oh-nowhere.sh --tui --lang zh
@@ -541,29 +409,13 @@ sudo ./oh-nowhere.sh --uninstall --lang zh
 /usr/local/etc/rc.d/nowhere
 ```
 
-Portal 或 Vector URL 存于：
+运行 URL 在 `/etc/nowhere/url.conf`。分享主机在 `/etc/nowhere/host.conf`。节点名在 `/etc/nowhere/name.conf`。
 
-```text
-/etc/nowhere/url.conf
-```
-
-分享 / SNI 公网主机名（Portal）或记忆的 Portal 主机：
-
-```text
-/etc/nowhere/host.conf
-```
-
-分享 URI 的 `#fragment` 节点名：
-
-```text
-/etc/nowhere/name.conf
-```
-
-启动器读取 `url.conf` 启动 Nowhere；若仍为 `nowhere://` 会自动迁移为 `vector://`。
+启动器读取 `url.conf` 再执行 Nowhere。若里面仍是 `nowhere://`：nw3 转成 `vector://` 并补 `in=127.0.0.1:1080`；更早的版本补 `socks=`。nw3 二进制遇到仍带 2.x 参数的 Portal / Vector URL 时，启动器报错退出，避免那些参数被静默忽略。
 
 ## systemd 管理
 
-Debian / Ubuntu 安装 `nowhere.service` 单元。
+Debian / Ubuntu 安装 `nowhere.service`。
 
 ```bash
 sudo systemctl status nowhere
@@ -597,7 +449,7 @@ sudo rc-update add nowhere default
 
 ## FreeBSD rc.d 管理
 
-FreeBSD（Nowhere 2.0+）安装 `/usr/local/etc/rc.d/nowhere`，并用 `sysrc nowhere_enable=YES` 启用。配置仍使用 `/etc/nowhere`（与 Linux 一致）。启动器 shebang 为 `#!/usr/bin/env bash`（FreeBSD 的 bash 通常在 `/usr/local/bin/bash`）。
+FreeBSD（Nowhere 2.0+）安装 `/usr/local/etc/rc.d/nowhere`，并用 `sysrc nowhere_enable=YES` 启用。配置仍使用 `/etc/nowhere`。启动器 shebang 为 `#!/usr/bin/env bash`（FreeBSD 的 bash 通常在 `/usr/local/bin/bash`）。
 
 ```bash
 sudo service nowhere status
@@ -615,26 +467,19 @@ sudo sysrc -x nowhere_enable
 
 ## 二维码支持
 
-Debian/Ubuntu 使用 `qrencode`；Alpine 使用 `python3` + `py3-qrcode`；FreeBSD 使用 `libqrencode`（`pkg install libqrencode`）。
-
-安装后：
-
-```bash
-sudo ./oh-nowhere.sh --share --lang zh
-```
+Debian / Ubuntu 使用 `qrencode`；Alpine 使用 `python3` + `py3-qrcode`；FreeBSD 使用 `libqrencode`（`pkg install libqrencode`）。菜单项 12 可安装对应包。安装后执行 `--share`，Portal 的二维码编码 TCP 分享链接（没有 TCP 时用 UDP）。
 
 ## 安全说明
 
-* Nowhere 2.2+ 请使用生成的 Portal 密钥：32–64 位小写十六进制字符（`nowhere generate-key`）。不合规密钥的 Portal 会拒绝启动；脚本在升级时自动重新生成此类密钥并打印警告。
-* 勿公开 Portal URL。
-* 长期公网服务建议 `tls=2` + 有效证书 + `--host` 配置 SNI。
-* Nowhere 2.2+ 且 `tls=1` 时，请随分享 URI 分发 `pin=<sha256>`（无法跳过证书校验）；该 pin 在 Portal 每次重启后变化。1.x 下客户端改为跳过证书校验。
-* Vector 入站 SOCKS 若暴露于本机以外，须配合认证与网络策略。
+* 使用脚本生成的密钥。nw3 三种角色都是恰好 32 位小写十六进制；2.2 Portal 为 32–64 位。不合规的 Portal 会拒绝启动。
+* 不要公开 Portal 的运行 URL。
+* 长期公网服务使用 `tls=2`、有效证书和 `--host`。自签模式下必须分发 `pin=`，且 Portal 每次重启后指纹都会变，见「TLS 模式」。
+* Vector 的入站 SOCKS 若暴露在本机以外，需要认证和网络限制。
 * 生产环境运行前请审阅脚本。
 
 ## 上游项目
 
-本仓库仅提供安装与管理脚本。Nowhere 由 NodePassProject 维护：
+本仓库只提供安装与管理脚本。Nowhere 由 NodePassProject 维护：
 
 ```text
 https://github.com/NodePassProject/Nowhere
@@ -643,3 +488,183 @@ https://github.com/NodePassProject/Nowhere
 ## 许可证
 
 遵循本仓库声明的许可证；再分发或修改前请查阅 LICENSE 文件。
+
+## 旧协议线（2.x / 1.x）
+
+用 `--version v2.2.1`、`--version v1.8.3` 或菜单项 3 安装、保留或降回旧线。下面的 URL 形态只在对应主版本上生成。跨到 nw3 或从 nw3 回来的步骤见「升级与跨线」。
+
+### Nowhere 2.0
+
+Nowhere 2.0 更换了线协议：ALPN 固定为 `nw2`（`--alpn` 警告后忽略），Portal 的 `net=` 被忽略，载体由端点路径决定，1.x 对端无法互通。`--tcp-port`、`--udp-port`、`--morph` 仅 2.0+（1.x 下传入会报错退出）。FreeBSD 安装包仅 2.0+；某个 2.x tag 若没有 `nowhere-<arch>-unknown-freebsd.tar.gz`，下载失败会写明 tag 与文件名。
+
+`--net` 在 2.0 映射为端点，不再写入 `net=`：
+
+| `--net` / 端口 | Portal 监听 URL |
+| -------------- | --------------- |
+| `mix`（默认同端口） | `portal://KEY@:2077?tls=1` |
+| `tcp` | `portal://KEY@*/tcp:2077?tls=1` |
+| `udp` | `portal://KEY@*/udp:2077?tls=1` |
+| `--tcp-port 2006 --udp-port 2017` | `portal://KEY@*/tcp:2006/udp:2017?tls=1` |
+| 两端口相同 | compact `KEY@:PORT` |
+
+2.0 新配置的 `up` / `down` 默认为 `tcp`，省略 mux（规范值 `0`）。1.x 默认 `udp`，且 `tcp/tcp` 仍自动补 `mux=1`。未拆端口时 `--port` 默认 **2077**。
+
+`--url` 可导入完整端点，包括 `tcp4` / `udp6`。Vector 必须使用具体 `--host`。
+
+升到 2.x 时，已存 Portal 的 `net=tcp|udp` 转为 `@*/tcp:PORT` 或 `@*/udp:PORT`，`net=mix`（或缺失）保留 compact，去掉 `alpn=`，保留 `morph=`。降到 1.x 时反向映射，去掉 `morph=`，不写 `alpn`（1.x 默认 `now/1`）。TCP/UDP 端口不同无法无损还原：警告并折叠为单一端口（优先 TCP，否则 UDP）。
+
+同端口 Portal：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --net mix \
+  --tls 1 \
+  --lang zh
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1
+```
+
+独立端口与 Morph：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --tcp-port 2006 \
+  --udp-port 2017 \
+  --morph 1 \
+  --lang zh
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*/tcp:2006/udp:2017?tls=1&morph=1
+```
+
+Vector（省略 `up` / `down` 时默认为 `tcp`，不会自动补 `mux`）：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --type vector \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --host relay.example \
+  --port 2077 \
+  --up tcp \
+  --down tcp \
+  --socks 127.0.0.1:1080 \
+  --lang zh
+```
+
+同端口 mix 的 Vector 端点是 `relay.example:2077`，单载体是 `relay.example/tcp:PORT`。`mix/mix` 按流选择 `tcp/tcp` 或 `udp/udp`。
+
+导入 2.x 分享 URI 时，`nowhere://` 转为 `vector://`，缺 `socks=` 则补上：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --version v2.2.1 \
+  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
+  --socks 127.0.0.1:1080 \
+  --lang zh
+```
+
+### Nowhere 2.2
+
+2.2 对已有 2.x 节点是运行时破坏性变更：
+
+* Portal 密钥以及 `next=` 上游密钥必须是 32–64 位小写十六进制（2.2.0 要求恰好 64 位，2.2.1 放宽为 32–64）。不符合的 Portal 拒绝启动
+* 默认强制校验证书。`tls=1` 时客户端需要 `pin=<sha256>`。细节见「TLS 模式」
+
+脚本的处理：
+
+* 新 Portal 密钥生成为 32 位小写十六进制
+* `--key` 与交互输入按 32–64 位校验
+* 升级到 2.2 时，不合规的 Portal 密钥自动重新生成并打印警告，随后请重发分享 URI。不合规的 `next=` 密钥只报告，不改写
+* 配置 Vector 且 `pin=` 为空时，可以自动用 `nowhere fingerprint` 获取 Portal 指纹
+* 工具箱里有 `nowhere generate-key`、`nowhere fingerprint`、`nowhere probe`、`nowhere status`；脚本使用前两个
+
+`dial` / `dial4` / `dial6`（双栈出口绑定，仅 Portal，2.2+）不是一级选项；逐项编辑器在改其他字段时原样保留它们。
+
+### Portal 原生链式（1.7+，2.x）
+
+中继 Portal 把流量直接转到下一跳，不必在本机回环 SOCKS5。`next=` 与出站 `socks=` 互斥。链上每个 Portal 都要支持 1.7.0 的 HOPS 语义（最多七跳）。
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --type portal \
+  --key b1c2d3e4f5a60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --next '00112233445566778899aabbccddeeff@origin.example:2077' \
+  --up tcp \
+  --down tcp \
+  --lang zh
+```
+
+```text
+portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?tls=1&next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
+```
+
+`next=` 也可以写成路径，例如 `00112233445566778899aabbccddeeff@origin.example/tcp:2077`。1.x 链式 Portal 仍写 `net=mix`，默认 `up` / `down` 为 `udp`。
+
+交互配置的出站选项是 `none`、`socks` 或 `next`。选择 `next` 后继续填写上游载体，以及可选的 `mux` / `sni` / `pin`。重新配置会保留 `next=` 和上游参数。客户端只连接本中继的入口，`next=` 不出现在分享 URI 里。nw3 不能迁移带 `next=` 的节点。
+
+### Nowhere 1.5 / 1.6 / 1.7 / 1.8
+
+* **1.5** 更换线协议并移除 Portal 的 `spec`。升级时从 `url.conf` 剥掉 `spec=`。自定义 `alpn` 可写；默认 `now/1` 不写入
+* **1.6** 增加只读 TUI 和结构化本地遥测（仅 Linux）。线协议与 1.5 相同
+* **1.7** 增加 `next=`、EVENT / 遥测 / TUI 中的上游 RTT，以及七跳预算。已存的 `nowhere://` 运行 URL 会迁成 `vector://`
+* **1.8** 用 TLS Mux（`mux=0|1`）取代 `pool=<n>`。升级时剥掉 `pool=`，并在 `tcp/tcp` 缺少 `mux=` 时写入 `mux=1`。方向为 `tcp` 或 `mix` 时询问 Mux；`udp/udp` 不写 `mux`
+* **1.8.3** 的 Vector 与 Portal `next` 接受 `up` / `down` 为 `tcp`、`udp` 或 `mix`。`mix/mix` 按流解析为 `tcp/tcp` 或 `udp/udp`
+
+Portal 与客户端必须同主版本。1.5 及以后的线协议需要两边一起升级。
+
+保留或还原 1.x（任意非空密钥均可）：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v1.8.3 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --lang zh
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1&net=mix
+```
+
+降级：
+
+```bash
+sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang zh
+```
+
+菜单项 10 / `--tui` 在 2.x 及 1.6+ 上执行 `nowhere tui`（只读；1.7 起显示上游 RTT）。nw3 改为 `nowhere status`。
+
+### 2.x / 1.x 分享 URI
+
+```text
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
+```
+
+最后一条是 2.2 自签 Portal。
+
+* 双载体 compact Portal 分享为 `host:port`。某一侧是 `mix` 时，只把那一侧写成 `udp`（`net=mix` 两侧都是 `mix`，所以是 `up=udp&down=udp`）。显式路径或拆端口使用路径形式
+* 仅 TCP / 仅 UDP 分别是 `up=tcp&down=tcp` 或 `up=udp&down=udp`。2.0 不会自动加 `mux=1`；1.x 的 `tcp/tcp` 会加 `mux=1`
+* Portal `morph=1` 会写入分享 URI
+* `tls`、`crt`、`key`、`net`、`dial`、`rate`、`etar`、`log`、出站 `socks`、`next` 不写入分享 URI
+* 1.x 下非默认 `alpn` 会复制到分享 URI；2.0 分享 URI 不含 `alpn`
+* 2.2+ 且 `tls=1` 时，能取到指纹就嵌入 `pin=`

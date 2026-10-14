@@ -8,112 +8,29 @@
 
 A one-click installation, upgrade, and management script for [Nowhere](https://github.com/NodePassProject/Nowhere).
 
-`oh-nowhere` is designed to make Nowhere Portal / Vector deployment simple on lightweight Linux and FreeBSD servers. It can install the latest Nowhere binary, generate a Portal or Vector URL, write a system service, manage service lifecycle, launch the read-only TUI, and print a client share URI. The default target is Nowhere **2.0+**; 1.x remains available for maintaining older nodes.
+`oh-nowhere` installs the Nowhere binary on lightweight Linux and FreeBSD servers, generates a Portal, Vector, or Egress URL, writes a system service, manages the service lifecycle, and prints a client share URI. Fresh installs follow the latest stable release (Nowhere 3 / nw3). An installed 2.x node stays on 2.x and does not cross to nw3 on its own. Without a version, a 1.x node upgrades to the newest 2.x; to stay on 1.x, pass `--version` or use menu item 3.
 
 ## Features
 
-* One-click Nowhere installation (defaults to the latest 2.x release)
-* Upgrade to the latest upstream Nowhere release
-* Install a specific Nowhere release version, including 1.x maintenance tags
-* Interactive version selection from GitHub releases
-* Interactive configuration menu
-* Per-field modification of the current configuration (menu item 5) with automatic service restart
-* Menu header shows the Nowhere service running state
-* Port conflict detection against local listeners during interactive setup and modification
-* Non-interactive CLI mode for automated deployment
-* systemd, OpenRC, and FreeBSD rc.d service support
-* Debian, Ubuntu, Alpine, and FreeBSD (2.0+ only) support
-* x86_64 and aarch64 architecture detection
-* GNU libc and musl build selection on Linux; `unknown-freebsd` assets on FreeBSD
-* Portal or Vector role selection
-* Portal outbound SOCKS5, native Portal chaining (`next=`), and Vector inbound SOCKS5
-* Carrier mode (`tcp` / `udp` / `mix`) mapped to 2.0 endpoint paths, or written as `net=` on 1.x
-* Independent TCP/UDP listen ports and Morph (`--tcp-port` / `--udp-port` / `--morph`, Nowhere 2.0+)
-* Mixed carrier policy (`tcp` / `udp` / `mix`) for Vector and Portal `next`
-* Nowhere 2.2+ ready: 32–64 lowercase hexadecimal Portal keys (`nowhere generate-key`), automatic key migration on upgrade, and certificate pin (`pin=<sha256>`) handling in share URIs
-* Import `nowhere://` share URIs (auto-convert to `vector://`)
-* Launch Nowhere read-only TUI (`nowhere tui`)
-* Service status display
-* Client share URI output (`nowhere://`) for Portal
-* Optional QR code support
+* One-click install of the latest stable release (nw3); an installed 2.x node stays on 2.x and does not cross to nw3 on its own
+* Install a specific release, or pick one interactively from GitHub releases
+* Interactive menu and non-interactive CLI
+* Per-field edits of the current configuration, with an automatic restart; port-conflict checks while configuring
+* systemd, OpenRC, and FreeBSD rc.d
+* Debian, Ubuntu, Alpine, and FreeBSD (Nowhere 2.0+ only)
+* x86_64 / aarch64; GNU libc or musl selected automatically on Linux
+* Portal, Vector, and the nw3 Egress role
+* Portal share URIs (`nowhere://`) and optional QR codes
+* Read-only TUI on 2.x; `nowhere status` on nw3
 * English, Chinese, and Russian script UI
-
-## Nowhere 2.0 (default) and 1.x maintenance
-
-Nowhere **2.0** is a breaking wire change: ALPN is fixed to `nw2` (`alpn=` is ignored), Portal `net=` is ignored (carriers are selected by the endpoint path), and 1.x peers cannot connect. This script defaults to the latest 2.x GitHub release. Keep a 1.x node with `--version v1.8.3` or menu item 3; 1.x is not the default upgrade target.
-
-* Portal and clients must share a major version (`now/1` vs `nw2`)
-* Interactive 1↔2 upgrade/downgrade asks for confirmation; `--upgrade` / `--install` print the warning and continue
-* `--tcp-port`, `--udp-port`, and `--morph` require Nowhere 2.0+ (the script exits if the profile is 1.x)
-* `--alpn` is ignored on 2.0 (same pattern as `--spec` / `--pool`)
-* New 2.0 configs default `up`/`down` to `tcp`; mux is omitted (canonical `0`). 1.x keeps default `udp` and still adds `mux=1` for `tcp/tcp`
-* `--port` remains the shared default (**2077**) when TCP/UDP ports are not split
-* FreeBSD packages exist only for Nowhere 2.0+; installing 1.x on FreeBSD is refused. If a 2.x tag has no `nowhere-<arch>-unknown-freebsd.tar.gz` asset, download fails with the tag and expected filename
-
-`--net mix|tcp|udp` stays the operator interface. On 2.0 it is mapped to the endpoint instead of `net=`:
-
-| `--net` / ports | Portal listen URL |
-| --------------- | ----------------- |
-| `mix` (default shared port) | `portal://KEY@:2077?tls=1` (TCP+UDP on the same port) |
-| `tcp` | `portal://KEY@*/tcp:2077?tls=1` |
-| `udp` | `portal://KEY@*/udp:2077?tls=1` |
-| `--tcp-port 2006 --udp-port 2017` | `portal://KEY@*/tcp:2006/udp:2017?tls=1` |
-| both ports set and equal | compact `KEY@:PORT` |
-
-`--url` can still import a full endpoint, including address-family suffixes such as `tcp4` / `udp6`. Vector requires a concrete `--host` (`*` is rejected).
-
-On upgrade to 2.x, stored Portal `net=tcp|udp` becomes `@*/tcp:PORT` or `@*/udp:PORT`, `net=mix` (or missing) stays compact, and `alpn=` is stripped. `morph=` is kept. Downgrade to 1.x reverses that mapping, drops `morph=`, and does not write `alpn` (1.x default `now/1`). Split TCP/UDP ports cannot be represented in 1.x: the script warns and collapses to a single port (TCP if set, otherwise UDP).
-
-## Nowhere 2.2 (Portal keys and certificate verification)
-
-Nowhere **2.2** is a breaking runtime change for existing 2.x nodes:
-
-* **Portal keys must be 32–64 lowercase hexadecimal characters** (2.2.0 required exactly 64 hex; 2.2.1 relaxed it to 32–64). The same rule applies to the `next=` upstream key. A Portal whose stored key does not match **refuses to start**.
-* **Portal certificates are verified by default.** Skipping certificate verification is no longer possible: clients need either a CA-issued certificate matching the endpoint address, or `pin=<sha256>` (the SHA-256 fingerprint of the Portal leaf certificate). With `tls=1` (self-signed) `pin=` is effectively required.
-
-This script is adapted for 2.2.1:
-
-* New Portal keys are generated as 32 lowercase hexadecimal characters (via `nowhere generate-key` when the binary is available, otherwise `/dev/urandom`)
-* `--key` and interactive key input validated against the 2.2 format (32–64 lowercase hex); invalid input is rejected with an error
-* On upgrade to 2.2, a stored Portal key that does not meet the requirement is **regenerated automatically** and the script prints a warning — redistribute the share URI to all clients afterwards. An invalid `next=` key is reported but not rewritten (it belongs to the upstream Portal)
-* The share URI for a self-signed Portal embeds `pin=<sha256>` when the fingerprint can be read from the service log (systemd journal, or `/var/log/nowhere.log` on OpenRC / FreeBSD) or fetched with `nowhere fingerprint`. Displayed pin and warnings follow the fingerprint status
-* Configuring a Vector on 2.2 offers to fetch the Portal fingerprint automatically (`nowhere fingerprint`) when `pin=` is left empty
-* `nowhere generate-key`, `nowhere fingerprint <nowhere-url>`, `nowhere probe`, and `nowhere status` are available in the 2.2 toolbox; the script uses the first two
-
-**Note:** a self-signed Portal certificate changes on every restart, so the `pin=` in the share URI must be redistributed after each Portal restart. For stable setups prefer `tls=2` with a real certificate.
-
-`dial` / `dial4` / `dial6` (dual-stack outbound source binding, Portal-only, 2.2+) are not first-class script options; the per-field configuration editor preserves them as-is when editing other fields.
-
-## Nowhere 1.5 / 1.6 / 1.7 / 1.8 Notes
-
-Nowhere **1.5** introduces a new wire protocol and removes the Portal `spec` parameter. Nowhere **1.6** adds a read-only TUI and structured local telemetry (Linux-only). Wire protocol is unchanged from 1.5.x. Nowhere **1.7** adds native Portal-to-Portal chaining (`next=`), upstream RTT in EVENT logs / telemetry / TUI, and a seven-hop forwarding budget. Nowhere **1.8** replaces the `tcp/tcp` warm TLS pool (`pool=<n>`) with TLS Mux (`mux=0|1`); the `pool` parameter is removed. Nowhere **1.8.3** adds mixed carrier policy: Vector and Portal `next` `up`/`down` accept `tcp`, `udp`, or `mix`.
-
-This script is adapted for those releases:
-
-* Portal URLs no longer include `spec=`
-* Optional custom `alpn` is supported (default `now/1` is omitted from the URL)
-* Share links remain `nowhere://` import URIs with `up` / `down` carriers
-* `vector://` runs the native SOCKS5 client; this script can generate and manage it
-* Pasting or importing `nowhere://` automatically converts to `vector://` (adds inbound `socks=` if missing)
-* On upgrade, any stored `spec=` is stripped from `/etc/nowhere/url.conf`
-* On upgrade, any stored `pool=` is stripped; `mux=1` is added for `tcp/tcp` when missing
-* Stored `nowhere://` run URLs are migrated to `vector://`
-* Menu item 10 / `--tui` launches the Nowhere dashboard (observational only; 1.7 shows upstream RTT)
-* Portal relay nodes can use native chaining via `next=` (mutually exclusive with outbound `socks=`)
-* Every Portal in a native chain must support Nowhere 1.7.0 HOPS semantics
-* Portal and clients must be upgraded together for 1.5+ wire
-* Vector and Portal `next` upstreams use `mux=0|1` instead of `pool=` (1.8+)
-* Vector and Portal `next` `up`/`down` accept `tcp|udp|mix` (1.8.3+); `mix/mix` resolves per flow to `tcp/tcp` or `udp/udp`
-* Mux is offered when a direction is `tcp` or `mix`; `udp/udp` omits `mux` (canonical `0`)
-* Share URI `up` and `down` are rewritten separately: a `mix` side becomes `udp`, while `tcp`/`udp` stay. Portal `net=mix` is `mix` on both sides, so the URI is `up=udp&down=udp`
 
 ## Supported Systems
 
 | OS           | Init system | Package manager | Notes |
 | ------------ | ----------- | --------------- | ----- |
-| Debian       | systemd     | apt             | 1.x and 2.x |
-| Ubuntu       | systemd     | apt             | 1.x and 2.x |
-| Alpine Linux | OpenRC      | apk             | 1.x and 2.x |
+| Debian       | systemd     | apt             | 1.x, 2.x, and 3.x |
+| Ubuntu       | systemd     | apt             | 1.x, 2.x, and 3.x |
+| Alpine Linux | OpenRC      | apk             | 1.x, 2.x, and 3.x |
 | FreeBSD      | rc.d        | pkg             | Nowhere 2.0+ only (`x86_64` / `aarch64`) |
 
 Supported architectures:
@@ -125,7 +42,7 @@ Recent GNU Linux assets require **glibc 2.39** (Ubuntu 24.04 / Debian 13). Debia
 
 ## Quick Start
 
-Download the script first:
+Download the script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ohmycggk/oh-nowhere/main/oh-nowhere.sh -o oh-nowhere.sh
@@ -138,7 +55,7 @@ Run the interactive manager:
 sudo ./oh-nowhere.sh --lang en
 ```
 
-Then select the action from the menu:
+Menu:
 
 ```text
 1. One-click install
@@ -152,7 +69,7 @@ Then select the action from the menu:
 7. Stop service
 8. Restart service
 9. Show status
-10. Launch Nowhere TUI
+10. TUI / instance status
 
 11. Show share URI
 12. Install QR code support
@@ -163,199 +80,147 @@ Then select the action from the menu:
 0. Exit
 ```
 
-The menu header shows the installed Nowhere version and the service state (running / stopped / not installed).
+The menu header shows the oh-nowhere script version, the installed Nowhere version, and the service state (running / stopped / not installed).
 
-## Modifying the Current Configuration
+## Default Install (Nowhere 3)
 
-Menu item **5** opens a per-field editor for the stored run URL. It lists every protocol parameter with its current value (role, key, ports, carrier policy `net`, TLS mode, `morph`/`alpn`, up/down carriers, `mux`, SOCKS / `next=` outbound, SNI, SPKI pin, share host, node name); enter the field number to change only that value, then press Enter or `q` to apply. The service is restarted automatically so changes take effect, and URL parameters the editor does not manage (e.g. `rate`/`etar`/`dial`/`log`) are preserved as-is.
+A fresh install without `--version` uses nw3. If Nowhere is already installed, `--install` upgrades instead and follows the target-version rules in "Upgrade and Protocol-Line Switch" below. Portal, Vector, and Egress keys are exactly 32 lowercase hexadecimal characters (`nowhere generate-key` when the binary is available, otherwise `/dev/urandom`). `morph` defaults to `1` and is always written. `tls` accepts only `1` or `2`. Portal wildcard hosts are written as `*`.
 
-Port fields are checked against the local listener table (`ss`/`sockstat`/`netstat`): a port already in use triggers a warning, and you must confirm before it is accepted. The same check runs during interactive install and configuration.
+The nw3 binary silently ignores parameters it does not know. The script checks them before writing. When the binary is already nw3 and a Portal or Vector `url.conf` still contains `up`, `down`, `mux`, `next`, `socks`, `net`, `alpn`, `log`, `pool`, or `spec`, the launcher refuses to start.
 
-## One-shot Installation
-
-Install Nowhere with default Portal values:
+### Portal
 
 ```bash
 sudo ./oh-nowhere.sh --install --lang en
 ```
 
-Install with custom Portal parameters:
-
-```bash
-sudo ./oh-nowhere.sh \
-  --install \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --port 2077 \
-  --net mix \
-  --tls 1 \
-  --lang en
-```
-
-On Nowhere 2.0 this generates a compact dual-carrier Portal URL:
+The default is shared-port `mix`. The URL has this shape (the script generates the key; the hex below is only a 32-character example):
 
 ```text
-portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=1&out=direct&morph=1
 ```
 
-Pass `--version v1.8.3` to keep the 1.x form `portal://change-me@:2077?tls=1&net=mix` (1.x accepts any non-empty key text).
+`*:2077` listens for TCP and UDP on the same port. Choose the exit with `--out`:
 
-Independent TCP/UDP ports and Morph (2.0+ only):
+| `--out` | Exit in the run URL |
+| ------- | ------------------- |
+| `direct` (default) | `out=direct` |
+| `socks` | `out=127.0.0.1:1080` (address from `--socks`; `user:pass@` is allowed) |
+| `egress` | `out=egress` (the endpoint must include UDP) |
+
+On a Portal, `--socks` is the compatibility alias for `--out socks`. `--next` is rejected on nw3.
+
+Carriers:
+
+| Form | Portal endpoint |
+| ---- | --------------- |
+| `--net mix` (default, ports not split) | `*:2077` |
+| `--net tcp` | `*/tcp:2077` |
+| `--net udp` | `*/udp:2077` |
+| `--tcp-port 2006 --udp-port 2017` | `*/tcp:2006/udp:2017` |
+
+Equal TCP and UDP ports collapse to `*:PORT`. `--net tcp` together with `--udp-port`, or `--net udp` together with `--tcp-port`, fails immediately.
+
+SOCKS5 upstream:
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --tcp-port 2006 \
-  --udp-port 2017 \
-  --morph 1 \
+  --port 2077 \
+  --socks 127.0.0.1:1080 \
   --lang en
 ```
 
 ```text
-portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*/tcp:2006/udp:2017?tls=1&morph=1
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=1&out=127.0.0.1:1080&morph=1
 ```
 
-Install as Vector (local SOCKS5 client):
-
-```bash
-sudo ./oh-nowhere.sh \
-  --install \
-  --type vector \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --host relay.example \
-  --port 2077 \
-  --up tcp \
-  --down tcp \
-  --socks 127.0.0.1:1080 \
-  --lang en
-```
-
-On 2.0 the Vector URL uses the same endpoint rules (`relay.example:2077` for mixed carriers on one port, or `relay.example/tcp:PORT`). `up`/`down` default to `tcp` when omitted; `mux` is not auto-set. On 1.x, `tcp/tcp` still gets `mux=1`.
-
-Install Vector with mixed carriers (`mix/mix` picks `tcp/tcp` or `udp/udp` per flow):
-
-```bash
-sudo ./oh-nowhere.sh \
-  --install \
-  --type vector \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --host relay.example \
-  --port 2077 \
-  --up mix \
-  --down mix \
-  --socks 127.0.0.1:1080 \
-  --lang en
-```
-
-Import a share URI (auto-converts `nowhere://` → `vector://`):
-
-```bash
-sudo ./oh-nowhere.sh \
-  --config \
-  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
-  --socks 127.0.0.1:1080 \
-  --lang en
-```
-
-Install a chained Portal relay (Nowhere 1.7+):
+Hand traffic to a registered Egress (the Portal and the Egress share one key):
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
   --type portal \
-  --key b1c2d3e4f5a60718293a4b5c6d7e8f90 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --next '00112233445566778899aabbccddeeff@origin.example:2077' \
-  --up tcp \
-  --down tcp \
+  --out egress \
   --lang en
 ```
-
-On 2.0 this generates:
 
 ```text
-portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?tls=1&next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=1&out=egress&morph=1
 ```
 
-`next=` can also use an explicit path such as `00112233445566778899aabbccddeeff@origin.example/tcp:2077`. 1.x chained Portals still write `net=mix` and default `up`/`down` to `udp`.
+### Vector
 
-## Install a Specific Version
-
-Install a specific upstream release from the command line:
+Vector is the local SOCKS5 client. Its endpoint declares exactly one carrier. `--host` must be a concrete host; `*` is rejected.
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v2.0.0 \
+  --type vector \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --host relay.example \
   --port 2077 \
+  --net tcp \
+  --socks 127.0.0.1:1080 \
   --lang en
 ```
 
-Keep or restore a 1.x node:
+```text
+vector://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2077?in=127.0.0.1:1080&morph=1
+```
+
+`--net udp` produces `/udp:PORT`. `--up` / `--down` / `--mux` are compatibility shims: equal carriers are kept (`mix` folds to `tcp`); a mismatch becomes `tcp` and prints a warning.
+
+Importing a share URI turns it into a Vector. On nw3 the script adds `in=` (default `127.0.0.1:1080`):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?net=tcp&morph=1' \
+  --socks 127.0.0.1:1080 \
+  --lang en
+```
+
+### Egress
+
+Egress dials out over QUIC to a Portal configured with `out=egress`. It does not need an inbound firewall port.
 
 ```bash
 sudo ./oh-nowhere.sh \
   --install \
-  --version v1.8.3 \
+  --type egress \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --host relay.example \
   --port 2077 \
   --lang en
 ```
 
-Upgrade or downgrade to a specific version:
-
-```bash
-sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang en
+```text
+egress://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/udp:2077?morph=1
 ```
-
-You can also select a version interactively by choosing menu item `3. Install specific version`. The script fetches the available GitHub releases and presents a numbered list. Choose `0` for the latest release or enter the number of the desired release.
 
 ## Service Roles
 
-Configure menu item 4 asks for `portal` or `vector`, or accepts a pasted `nowhere://` / `vector://` / `portal://` URL.
+Configure (menu item 4) accepts `portal`, `vector`, or `egress`, or a pasted `nowhere://`, `vector://`, `portal://`, or `egress://` URL. Only one role is active at a time (one `url.conf`, one `nowhere` service).
 
-| Role | Run URL | Outbound |
-| ---- | ------- | -------- |
-| `portal` | `portal://key@:port?...` or `portal://key@*/tcp:port[/udp:port]?...` | Optional **outbound SOCKS** (`socks=host:port`) **or** native chain (`next=key@host:port` with `up`/`down`/`mux`/`sni`/`pin`); mutually exclusive |
-| `vector` | `vector://key@portal-host:port?...` or path form `host/tcp:A/udp:B` | Required **inbound** listener (default `127.0.0.1:1080`) |
+| Role | Run URL | Notes |
+| ---- | ------- | ----- |
+| `portal` | `portal://KEY@*:2077?tls=1&out=direct&morph=1` | Exit is `out=direct`, `out=[user:pass@]host:port`, or `out=egress` |
+| `vector` | `vector://KEY@HOST/tcp:2077?in=127.0.0.1:1080&morph=1` | Inbound listener `in=`; the endpoint has one carrier |
+| `egress` | `egress://KEY@HOST/udp:2077?morph=1` | Dials a Portal with `out=egress`; no inbound port |
 
-Only one role is active at a time (single `url.conf` / `nowhere` service). Reconfigure to switch.
-
-### Portal native chaining (1.7+)
-
-A relay Portal forwards flows directly to another Portal without loopback SOCKS5:
-
-```text
-portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
-```
-
-Interactive configure asks for outbound mode: `none`, `socks`, or `next`. When using `next`, the script also prompts for upstream carriers and optional `mux` / `sni` / `pin`.
-
-Import an existing chained Portal URL via `--url` or paste `portal://...?next=...` in the configure menu; reconfigure preserves `next=` and upstream parameters.
+2.x `socks=`, `next=`, and dual-carrier paths are in "Older protocol lines" at the end.
 
 ## TLS Modes (Portal)
 
-### Self-signed TLS
+The default is `tls=1` (self-signed). nw3 does not accept `tls=0`.
 
-The default mode is `tls=1`.
+Nowhere 2.2+ and nw3 verify certificates by default; clients cannot skip verification. When the fingerprint can be read, a self-signed Portal share URI includes `pin=<sha256>` (64 lowercase hex characters). The fingerprint comes from the service log (the systemd journal, or `/var/log/nowhere.log` on OpenRC / FreeBSD) or from `nowhere fingerprint`. A self-signed certificate is regenerated on every Portal restart, so send clients the new share URI afterwards. On 1.x, clients skip certificate verification instead.
 
-```bash
-sudo ./oh-nowhere.sh \
-  --config \
-  --type portal \
-  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
-  --port 2077 \
-  --net mix \
-  --tls 1 \
-  --lang en
-```
-
-When using self-signed TLS on Nowhere 2.2+, clients must set `pin=<sha256>` (certificate verification is mandatory and cannot be skipped). The share URI omits `sni` in this mode. The `--share` output embeds the Portal's current fingerprint as `pin=` when it can be read from the service log or fetched with `nowhere fingerprint`; because a self-signed certificate is regenerated on every Portal restart, redistribute the share URI after restarts. On 1.x, clients instead skip certificate verification. For a stable pin-free setup use `tls=2` with a real certificate.
-
-### Custom Certificate
-
-Use `tls=2` when you want to provide your own certificate and private key. Set `--host` so the share URI can include a matching `sni`:
+For a stable fingerprint on a long-lived public service, use `tls=2` with a real certificate and set `--host` so the share URI includes a matching `sni`:
 
 ```bash
 sudo ./oh-nowhere.sh \
@@ -363,7 +228,6 @@ sudo ./oh-nowhere.sh \
   --type portal \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --net mix \
   --tls 2 \
   --cert /etc/nowhere/cert.pem \
   --keyfile /etc/nowhere/key.pem \
@@ -371,63 +235,63 @@ sudo ./oh-nowhere.sh \
   --lang en
 ```
 
-## Carrier Modes (Portal)
-
-`--net` is the operator switch for which carriers the Portal advertises. Default is still `mix`.
-
-| Mode  | 2.0 Portal endpoint | 1.x query | Share URI carriers |
-| ----- | ------------------- | --------- | ------------------ |
-| `mix` | compact `KEY@:PORT` (TCP+UDP same port) | `net=mix` | `up=udp&down=udp` |
-| `tcp` | `KEY@*/tcp:PORT` | `net=tcp` | `up=tcp&down=tcp` (1.x also adds `mux=1`) |
-| `udp` | `KEY@*/udp:PORT` | `net=udp` | `up=udp&down=udp` |
-
-`--tcp-port` / `--udp-port` (2.0+ only) override `--net` + `--port`:
-
-* both set and equal → compact `HOST:PORT`
-* both set and different → `HOST/tcp:A/udp:B`
-* only `--tcp-port` → `HOST/tcp:A`
-* only `--udp-port` → `HOST/udp:B`
-* neither set → `--net` + `--port`
-
-Conflicts exit immediately: `--net tcp` with `--udp-port`, `--net udp` with `--tcp-port`, or `up`/`down`/`mix` requesting a carrier the endpoint did not declare.
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem&out=direct&morph=1
+```
 
 ## Client Share URI
 
-Menu item 11 / `--share` prints a `nowhere://` import URI for clients when the service role is Portal (not for Vector).
-
-Examples:
+Menu item 11 / `--share` prints one `nowhere://` link per Portal carrier. The QR code encodes the TCP link when one exists. A self-signed Portal (`tls=1`) includes `pin=` when the fingerprint is available:
 
 ```text
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
-nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f5#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=tcp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=udp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
 ```
 
-The last example shows a 2.2 self-signed Portal: `pin=<sha256>` is the Portal certificate fingerprint (64 lowercase hex characters, changes on every Portal restart).
+With `tls=2` and a share host set, the link carries `sni` and does not depend on `pin`. What `pin=` means, and why it changes after a restart, is covered under "TLS Modes".
 
-* Dual-carrier compact Portal → `host:port`. Only a `mix` side is published as `udp` (`net=mix` is `mix` on both sides, so `up=udp&down=udp`); explicit or split ports use the path form
-* TCP-only / UDP-only endpoints share `up=tcp&down=tcp` or `up=udp&down=udp`; 2.0 does not auto-add `mux=1`
-* Portal `morph=1` is copied onto the share URI
 * Host prefers `/etc/nowhere/host.conf` (or `--host`); otherwise the detected public IP
-* Node name is appended as a percent-encoded `#fragment`; set it with `--name` (default `Nowhere-<country>-<first IP octet>`, stored in `/etc/nowhere/name.conf`)
-* Portal-only parameters (`tls`, `crt`, `key`, `net`, `dial`, `rate`, `etar`, `log`, outbound `socks`, **`next`**) are not copied into the share URI
-* Chained Portal: clients connect to this relay's entry point; `next=` remains server-side only
-* Custom `alpn` is copied on 1.x when it differs from `now/1`; 2.0 share URIs never include `alpn`
-* On Nowhere 2.2+ with `tls=1`, the Portal fingerprint is embedded as `pin=<sha256>` when available (see [Nowhere 2.2](#nowhere-22-portal-keys-and-certificate-verification)); it changes on every Portal restart
-* On a Vector instance, `--share` prints the current `vector://` run URL instead
+* The node name is a percent-encoded `#fragment`; set it with `--name` (default `Nowhere-<country>-<first IP octet>`, stored in `/etc/nowhere/name.conf`)
+* `tls`, `crt`, `key`, `out`, `dial`, `rate`, `etar`, and `log` are omitted from the share URI
+* Vector and Egress print only the run URL; there is no client import link
+* Paste a `nowhere://` URI into configure or `--url` to run a Vector locally
 
-Paste a `nowhere://` share URI into configure / `--url` to run Vector locally.
+2.x share links use `up` / `down`. See "Older protocol lines" below.
 
-## Nowhere TUI
+## Modifying the Current Configuration
 
-Menu item 10 / `--tui` runs:
+Menu item **5** edits the stored run URL field by field. Enter a field number to change that value, then press Enter or `q` to save and restart the service.
 
-```bash
-nowhere tui
-```
+On nw3 the fields include: key, ports, carrier (Vector has a single `tcp` or `udp`), TLS, `morph`, the Portal exit `out=` (`direct` / `socks` / `egress`), the SOCKS upstream, Vector `in=`, and for Egress the host / UDP port / SNI / pin, plus the share host and node name. Parameters the editor does not manage (`rate` / `etar` / `dial` / `log`) are kept as-is.
 
-The dashboard discovers local Portal/Vector instances and shows live metrics, including upstream RTT (`ping_ms`) in Nowhere 1.7+. It is read-only and does not start, stop, or reconfigure the service.
+Ports are checked against the local listener table (`ss` / `sockstat` / `netstat`). A port already in use warns and must be confirmed. Interactive install and configure run the same check.
+
+## Upgrade and Protocol-Line Switch
+
+`--upgrade` without `--version`:
+
+* An installed 2.x node stays on 2.x: the newest `v2.*` among the latest 30 releases, or `v2.2.1` when that list has none
+* An installed 1.x node, when no version is given, targets that same newest `v2.*` and does not stay on 1.x
+* An installed nw3 node, and a fresh install, follow the latest stable release
+
+Menu item 3 lists GitHub releases. Enter `0` and a fresh install follows the latest stable release; an installed 2.x node still goes to the newest 2.x, and an installed 1.x node targets that newest 2.x as well. Enter a list number to install that release. Moving to another major version still asks for confirmation.
+
+An upgrade from 1.x to 2.x prints a warning first. Interactive mode continues after confirmation; `--upgrade` / `--install` print the warning and continue.
+
+Switching between nw2 and nw3 is a separate gate. An explicit `--version` does not skip it. Before anything is downloaded, the script preflights `url.conf`:
+
+* Moving to nw3 stops when the Portal has `next=` (nw3 has no equivalent; reconfigure as a Vector, or use `out=socks` / `out=egress`)
+* Moving back to nw2 stops when the role is Egress, or the Portal uses `out=egress`
+
+After the preflight:
+
+* In the interactive menu, type `MIGRATE`
+* `--upgrade` / `--install` also need `--allow-protocol-breaking-upgrade` (without `--version`, that flag jumps straight to the latest 3.x)
+
+After confirmation the script copies `url.conf` to `url.conf.nw<old-major>.bak.<timestamp>`, copies the binary to `nowhere.bak.<timestamp>`, then migrates the URL:
+
+* nw2 → nw3: `socks=` becomes `out=` (`out=direct` when `socks` is absent); an empty host `@:PORT` becomes `*:PORT`; Vector `socks=` becomes `in=`, and multiple carriers collapse to one (`mix`, or mismatched up/down, becomes `tcp` with a warning). `morph` is written explicitly (`0` when nw2 omitted it). A Portal key that is not 32 lowercase hex is regenerated, and the script asks you to redistribute the share URI. A Vector key belongs to the peer Portal and is only reported. `rate` / `etar` / `dial*` are kept. `up` / `down` / `mux` / `sni` / `pin` / `alpn` / `net` / `log` are removed from the Portal URL
+* nw3 → nw2: `out=direct` drops the exit, `out=<endpoint>` becomes `socks=`, `in=` becomes `socks=`, and a single carrier expands to `up`=`down`. `morph=1` is kept; `morph=0` is omitted
 
 ## CLI Usage
 
@@ -437,44 +301,48 @@ sudo ./oh-nowhere.sh [options]
 
 ### Options
 
-| Option                      | Description                                      |
-| --------------------------- | ------------------------------------------------ |
-| `-i`, `--install`           | One-shot install, upgrade, and start             |
-| `-u`, `--upgrade`           | Upgrade Nowhere                                  |
-| `-c`, `--config`            | Configure the service                            |
-| `-s`, `--status`            | Show service status                              |
-| `-q`, `--share`             | Show client share URI                            |
-| `--tui`                     | Launch Nowhere TUI                               |
-| `--upgrade-script`          | Upgrade this oh-nowhere script from GitHub       |
-| `--uninstall`               | Uninstall Nowhere                                |
-| `--type <portal\|vector>`   | Service role, default `portal`                   |
-| `--url <uri>`               | Import `portal://`, `vector://`, or `nowhere://` |
-| `-k`, `--key <key>`         | Set the shared key (Nowhere 2.2+ Portal keys: 32–64 lowercase hex) |
-| `-p`, `--port <port>`       | Set the listen / Portal port, default `2077`     |
-| `--alpn <alpn>`             | 1.x TLS/QUIC ALPN (default `now/1` omitted); ignored on 2.0 (`nw2`) |
-| `--host <hostname>`         | Portal: share/SNI host; Vector: Portal host      |
-| `--name <name>`             | Node name for share URI `#` fragment             |
-| `--net <mix\|tcp\|udp>`     | Carrier mode (1.x writes `net=`; 2.0 maps to endpoint path; default `mix`) |
-| `--tcp-port <port>`         | TLS/TCP port (Nowhere 2.0+; independent of `--udp-port`) |
-| `--udp-port <port>`         | QUIC/UDP port (Nowhere 2.0+; independent of `--tcp-port`) |
-| `--morph <0\|1>`            | Keyed TLS/QUIC wire mask (Nowhere 2.0+; default `0`, omitted) |
-| `--tls <1\|2>`              | Portal TLS mode, default `1`                     |
-| `--cert <path>`             | Certificate path when `tls=2`                    |
-| `--keyfile <path>`          | Private key path when `tls=2`                    |
-| `--socks <addr>`            | Portal outbound or Vector inbound SOCKS          |
-| `--next <key@host:port>`    | Portal native upstream (mutually exclusive with `--socks`) |
-| `--up <tcp\|udp\|mix>`      | Uplink carrier (default `tcp` on 2.x, `udp` on 1.x) |
-| `--down <tcp\|udp\|mix>`    | Downlink carrier (default `tcp` on 2.x, `udp` on 1.x) |
-| `--mux <0\|1>`              | TLS Mux when a direction is `tcp` or `mix` (2.x omits/default `0`; 1.x `tcp/tcp` defaults to `1`) |
-| `--sni <name>`              | Certificate name (Vector or Portal `next` upstream) |
-| `--pin <sha256>`            | Certificate pin (Nowhere 2.2+: required for `tls=1` self-signed Portal; otherwise Vector or Portal `next` upstream) |
-| `-v`, `--version <ver>`     | Install a specific release (e.g. `v2.0.0` or `v1.8.3`) |
-| `-l`, `--lang <en\|zh\|ru>` | Set script language, default `zh`                |
-| `-h`, `--help`              | Show help                                        |
+| Option | Description |
+| ------ | ----------- |
+| `-i`, `--install` | One-shot install, upgrade, and start |
+| `-u`, `--upgrade` | Upgrade Nowhere |
+| `--allow-protocol-breaking-upgrade` | Confirm an nw2↔nw3 protocol-line switch (migrates stored URLs) |
+| `-c`, `--config` | Configure the service |
+| `-s`, `--status` | Show service status |
+| `-q`, `--share` | Show the client share URI |
+| `--tui` | Launch the Nowhere TUI (2.x) or `nowhere status` (nw3) |
+| `--upgrade-script` | Upgrade this oh-nowhere script from GitHub |
+| `--uninstall` | Uninstall Nowhere |
+| `--type <portal\|vector\|egress>` | Service role, default `portal` (`egress` requires nw3) |
+| `--url <uri>` | Import `portal://`, `vector://`, `egress://`, or `nowhere://` |
+| `-k`, `--key <key>` | Shared key (nw3: exactly 32 lowercase hex; 2.2+ Portal: 32–64 lowercase hex) |
+| `-p`, `--port <port>` | Listen port, default `2077` |
+| `--alpn <alpn>` | 1.x TLS/QUIC ALPN (default `now/1` is omitted); warned and ignored on 2.0 and nw3 |
+| `--host <hostname>` | Portal: share/SNI host; Vector / Egress: Portal host |
+| `--name <name>` | Node name for the share URI `#` fragment |
+| `--net <mix\|tcp\|udp>` | Carrier (1.x writes `net=`; 2.0 maps it to the endpoint path; nw3 Vector uses only `tcp` / `udp`; default `mix`) |
+| `--tcp-port <port>` | TLS/TCP port (Nowhere 2.0+; may differ from UDP) |
+| `--udp-port <port>` | QUIC/UDP port (Nowhere 2.0+; also the nw3 Egress port) |
+| `--morph <0\|1>` | Keyed TLS/QUIC wire mask (Nowhere 2.0+; default `0` and omitted on 2.x, default `1` and written on nw3) |
+| `--tls <1\|2>` | Portal TLS mode, default `1` (nw3 does not accept `0`) |
+| `--cert <path>` | Certificate path when `tls=2` |
+| `--keyfile <path>` | Private key path when `tls=2` |
+| `--socks <addr>` | Vector inbound SOCKS; on an nw3 Portal, alias for `--out socks` |
+| `--out <direct\|socks\|egress>` | Portal exit (nw3; default `direct`) |
+| `--next <key@host:port>` | Portal native upstream, 2.x only (mutually exclusive with `--socks`; rejected on nw3) |
+| `--up <tcp\|udp\|mix>` | Uplink carrier (default `tcp` on 2.x, `udp` on 1.x; compatibility shim on nw3) |
+| `--down <tcp\|udp\|mix>` | Downlink carrier (default `tcp` on 2.x, `udp` on 1.x; compatibility shim on nw3) |
+| `--mux <0\|1>` | TLS Mux when a direction is `tcp` or `mix` (2.x omits it, meaning `0`; 1.x `tcp/tcp` defaults to `1`) |
+| `--sni <name>` | Certificate name (Vector, Egress, or a 2.x Portal `next` upstream) |
+| `--pin <sha256>` | Certificate fingerprint (required for clients of a self-signed Portal; may also be set on Vector / Egress) |
+| `-v`, `--version <ver>` | Install a specific Nowhere release (for example `v3.0.0`, `v2.2.1`, or `v1.8.3`) |
+| `--script-version` | Print this oh-nowhere version and exit |
+| `-l`, `--lang <en\|zh\|ru>` | Script language, default `zh` |
+| `-h`, `--help` | Show help |
 
-`--spec` is accepted but ignored with a warning (removed in Nowhere 1.5).
-`--pool` is accepted but ignored with a warning (removed in Nowhere 1.8; use `--mux`).
-`--alpn` is ignored with a warning on Nowhere 2.0 (fixed ALPN `nw2`).
+`--spec` is still accepted, then warned and ignored (removed in Nowhere 1.5).
+`--pool` is still accepted, then warned and ignored (removed in Nowhere 1.8; use `--mux`).
+`--alpn` is warned and ignored on 2.0 and on nw3.
+`--next` is rejected on nw3.
 
 ## Common Commands
 
@@ -484,43 +352,43 @@ Show status:
 sudo ./oh-nowhere.sh --status --lang en
 ```
 
-Upgrade Nowhere:
+Upgrade while staying on the current protocol line:
 
 ```bash
 sudo ./oh-nowhere.sh --upgrade --lang en
 ```
 
-Install a specific Nowhere version:
+Cross to nw3 after confirmation:
 
 ```bash
-sudo ./oh-nowhere.sh --install --version v1.8.3 --lang en
+sudo ./oh-nowhere.sh --upgrade --allow-protocol-breaking-upgrade --lang en
 ```
 
-Reconfigure the service:
+Reconfigure:
 
 ```bash
 sudo ./oh-nowhere.sh --config --lang en
 ```
 
-Show client share URI:
+Show the share URI:
 
 ```bash
 sudo ./oh-nowhere.sh --share --lang en
 ```
 
-Launch TUI:
+Launch the TUI (2.x) or the status snapshot (nw3):
 
 ```bash
 sudo ./oh-nowhere.sh --tui --lang en
 ```
 
-Upgrade the management script:
+Upgrade the manager script:
 
 ```bash
 sudo ./oh-nowhere.sh --upgrade-script --lang en
 ```
 
-Uninstall Nowhere:
+Uninstall:
 
 ```bash
 sudo ./oh-nowhere.sh --uninstall --lang en
@@ -528,7 +396,7 @@ sudo ./oh-nowhere.sh --uninstall --lang en
 
 ## Installed Files
 
-The script may create or manage the following files:
+The script may create or manage:
 
 ```text
 /usr/local/bin/nowhere
@@ -541,31 +409,13 @@ The script may create or manage the following files:
 /usr/local/etc/rc.d/nowhere
 ```
 
-The generated Portal or Vector URL is stored at:
+The run URL is `/etc/nowhere/url.conf`. The share host is `/etc/nowhere/host.conf`. The node name is `/etc/nowhere/name.conf`.
 
-```text
-/etc/nowhere/url.conf
-```
-
-Optional public hostname for share / SNI (Portal) or remembered Portal host:
-
-```text
-/etc/nowhere/host.conf
-```
-
-Node name appended to the share URI as `#fragment`:
-
-```text
-/etc/nowhere/name.conf
-```
-
-The service launcher reads `url.conf` and starts Nowhere with the stored URL. If the file still contains `nowhere://`, the launcher migrates it to `vector://` automatically.
+The launcher reads `url.conf` and execs Nowhere. A stored `nowhere://` URL becomes `vector://`: nw3 adds `in=127.0.0.1:1080`; older releases add `socks=`. If an nw3 binary still sees 2.x parameters on a Portal or Vector URL, the launcher exits with an error so those parameters are not silently ignored.
 
 ## systemd Management
 
-On Debian and Ubuntu, the script installs a `nowhere.service` unit.
-
-Manual service commands:
+Debian / Ubuntu install a `nowhere.service` unit.
 
 ```bash
 sudo systemctl status nowhere
@@ -574,7 +424,7 @@ sudo systemctl stop nowhere
 sudo systemctl start nowhere
 ```
 
-View logs:
+Logs:
 
 ```bash
 sudo journalctl -u nowhere -f
@@ -582,9 +432,7 @@ sudo journalctl -u nowhere -f
 
 ## OpenRC Management
 
-On Alpine Linux, the script installs an OpenRC service.
-
-Manual service commands:
+Alpine installs an OpenRC service.
 
 ```bash
 sudo rc-service nowhere status
@@ -593,7 +441,7 @@ sudo rc-service nowhere stop
 sudo rc-service nowhere start
 ```
 
-Enable service on boot:
+Enable at boot:
 
 ```bash
 sudo rc-update add nowhere default
@@ -601,7 +449,7 @@ sudo rc-update add nowhere default
 
 ## FreeBSD rc.d Management
 
-On FreeBSD (Nowhere 2.0+), the script installs `/usr/local/etc/rc.d/nowhere` and enables it with `sysrc nowhere_enable=YES`. Config stays at `/etc/nowhere` (same as Linux). The launcher uses `#!/usr/bin/env bash` because FreeBSD bash is typically `/usr/local/bin/bash`.
+FreeBSD (Nowhere 2.0+) installs `/usr/local/etc/rc.d/nowhere` and enables it with `sysrc nowhere_enable=YES`. Configuration stays in `/etc/nowhere`. The launcher shebang is `#!/usr/bin/env bash` (FreeBSD bash is usually `/usr/local/bin/bash`).
 
 ```bash
 sudo service nowhere status
@@ -610,7 +458,7 @@ sudo service nowhere stop
 sudo service nowhere start
 ```
 
-Enable or disable on boot:
+Enable or disable at boot:
 
 ```bash
 sudo sysrc nowhere_enable=YES
@@ -619,34 +467,19 @@ sudo sysrc -x nowhere_enable
 
 ## QR Code Support
 
-The script can optionally install QR code support.
-
-On Debian/Ubuntu, it uses `qrencode`.
-
-On Alpine Linux, it uses `python3` and `py3-qrcode`.
-
-On FreeBSD, it uses `libqrencode` (`pkg install libqrencode`).
-
-After installing QR support, use:
-
-```bash
-sudo ./oh-nowhere.sh --share --lang en
-```
+Debian / Ubuntu use `qrencode`; Alpine uses `python3` + `py3-qrcode`; FreeBSD uses `libqrencode` (`pkg install libqrencode`). Menu item 12 installs the matching package. After that, `--share` encodes the Portal TCP share link as a QR code (UDP when there is no TCP link).
 
 ## Security Notes
 
-* On Nowhere 2.2+ use a generated Portal key: 32–64 lowercase hexadecimal characters (`nowhere generate-key`). A Portal with a non-conforming key refuses to start; the script regenerates such keys on upgrade and prints a warning.
-* Do not publish your Portal URL publicly.
-* For long-running public services, prefer `tls=2` with a valid certificate and `--host` for SNI.
-* With `tls=1` on Nowhere 2.2+, distribute `pin=<sha256>` with the share URI (certificate verification cannot be skipped); the pin changes whenever the Portal restarts. On 1.x, clients skip certificate verification instead.
-* Vector inbound SOCKS exposed beyond localhost should use authentication and network policy.
-* Review the script before running it on production servers.
+* Use a key the script generates. On nw3 every role uses exactly 32 lowercase hex characters; a 2.2 Portal uses 32–64. A Portal with a non-conforming key refuses to start.
+* Do not publish the Portal run URL.
+* For a long-lived public service use `tls=2`, a valid certificate, and `--host`. Self-signed mode requires distributing `pin=`, and the fingerprint changes on every Portal restart. See "TLS Modes".
+* If a Vector inbound SOCKS listener is reachable beyond the host, add authentication and a network policy.
+* Review the script before running it in production.
 
 ## Upstream Project
 
-This repository only provides the installation and management script.
-
-Nowhere itself is maintained by NodePassProject:
+This repository provides the install and management script. Nowhere is maintained by NodePassProject:
 
 ```text
 https://github.com/NodePassProject/Nowhere
@@ -654,4 +487,184 @@ https://github.com/NodePassProject/Nowhere
 
 ## License
 
-This repository follows the license declared in the project repository. Please check the repository license file before redistribution or modification.
+Follow the license declared in this repository. Read the LICENSE file before redistributing or modifying it.
+
+## Older Protocol Lines (2.x / 1.x)
+
+Install, keep, or return to an older line with `--version v2.2.1`, `--version v1.8.3`, or menu item 3. The URL forms below are produced only on that major version. Crossing to nw3, or back from it, is described under "Upgrade and Protocol-Line Switch".
+
+### Nowhere 2.0
+
+Nowhere 2.0 changes the wire protocol: ALPN is fixed to `nw2` (`--alpn` warns and is ignored), Portal `net=` is ignored, carriers come from the endpoint path, and 1.x peers cannot connect. `--tcp-port`, `--udp-port`, and `--morph` require 2.0+ (passing them on 1.x exits with an error). FreeBSD packages exist only for 2.0+. If a 2.x tag has no `nowhere-<arch>-unknown-freebsd.tar.gz`, the download error names the tag and the expected filename.
+
+On 2.0, `--net` is mapped to the endpoint and is not written as `net=`:
+
+| `--net` / ports | Portal listen URL |
+| --------------- | ----------------- |
+| `mix` (default, shared port) | `portal://KEY@:2077?tls=1` |
+| `tcp` | `portal://KEY@*/tcp:2077?tls=1` |
+| `udp` | `portal://KEY@*/udp:2077?tls=1` |
+| `--tcp-port 2006 --udp-port 2017` | `portal://KEY@*/tcp:2006/udp:2017?tls=1` |
+| both ports equal | compact `KEY@:PORT` |
+
+New 2.0 configs default `up` / `down` to `tcp` and omit mux (canonical `0`). 1.x defaults to `udp` and still adds `mux=1` for `tcp/tcp`. When ports are not split, `--port` defaults to **2077**.
+
+`--url` can import a full endpoint, including address-family suffixes such as `tcp4` / `udp6`. Vector requires a concrete `--host`.
+
+On upgrade to 2.x, stored Portal `net=tcp|udp` becomes `@*/tcp:PORT` or `@*/udp:PORT`, `net=mix` (or a missing value) stays compact, `alpn=` is stripped, and `morph=` is kept. Downgrade to 1.x reverses that mapping, drops `morph=`, and does not write `alpn` (1.x default `now/1`). Split TCP/UDP ports cannot be represented on 1.x: the script warns and collapses to one port (TCP if set, otherwise UDP).
+
+Shared-port Portal:
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --net mix \
+  --tls 1 \
+  --lang en
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1
+```
+
+Independent ports and Morph:
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --tcp-port 2006 \
+  --udp-port 2017 \
+  --morph 1 \
+  --lang en
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*/tcp:2006/udp:2017?tls=1&morph=1
+```
+
+Vector (`up` / `down` default to `tcp` when omitted; `mux` is not added automatically):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --type vector \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --host relay.example \
+  --port 2077 \
+  --up tcp \
+  --down tcp \
+  --socks 127.0.0.1:1080 \
+  --lang en
+```
+
+A mixed Vector on one port uses `relay.example:2077`; a single carrier uses `relay.example/tcp:PORT`. `mix/mix` picks `tcp/tcp` or `udp/udp` per flow.
+
+Importing a 2.x share URI converts `nowhere://` to `vector://` and adds `socks=` when it is missing:
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --version v2.2.1 \
+  --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example' \
+  --socks 127.0.0.1:1080 \
+  --lang en
+```
+
+### Nowhere 2.2
+
+2.2 is a breaking runtime change for existing 2.x nodes:
+
+* Portal keys, and the `next=` upstream key, must be 32–64 lowercase hexadecimal characters (2.2.0 required exactly 64; 2.2.1 relaxed that to 32–64). A non-conforming Portal refuses to start
+* Certificate verification is mandatory. With `tls=1`, clients need `pin=<sha256>`. See "TLS Modes"
+
+What this script does:
+
+* New Portal keys are 32 lowercase hexadecimal characters
+* `--key` and interactive input are checked as 32–64 hex
+* On upgrade to 2.2, a non-conforming Portal key is regenerated and a warning is printed; redistribute the share URI afterwards. A non-conforming `next=` key is reported and left unchanged
+* Configuring a Vector with an empty `pin=` can fetch the Portal fingerprint with `nowhere fingerprint`
+* The 2.2 toolbox includes `nowhere generate-key`, `nowhere fingerprint`, `nowhere probe`, and `nowhere status`; the script uses the first two
+
+`dial` / `dial4` / `dial6` (dual-stack outbound source binding, Portal only, 2.2+) are not first-class options. The per-field editor keeps them when other fields change.
+
+### Portal Native Chaining (1.7+, 2.x)
+
+A relay Portal forwards flows to the next hop without a loopback SOCKS5. `next=` and outbound `socks=` are mutually exclusive. Every Portal in the chain must support 1.7.0 HOPS semantics (seven hops).
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v2.2.1 \
+  --type portal \
+  --key b1c2d3e4f5a60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --next '00112233445566778899aabbccddeeff@origin.example:2077' \
+  --up tcp \
+  --down tcp \
+  --lang en
+```
+
+```text
+portal://b1c2d3e4f5a60718293a4b5c6d7e8f90@:2077?tls=1&next=00112233445566778899aabbccddeeff@origin.example:2077&up=tcp&down=tcp
+```
+
+`next=` may also use a path, for example `00112233445566778899aabbccddeeff@origin.example/tcp:2077`. A 1.x chained Portal still writes `net=mix` and defaults `up` / `down` to `udp`.
+
+Interactive configure offers `none`, `socks`, or `next`. Choosing `next` continues with the upstream carriers and optional `mux` / `sni` / `pin`. Reconfigure keeps `next=` and the upstream parameters. Clients connect to this relay's entry; `next=` is absent from the share URI. A node that still has `next=` cannot be migrated to nw3.
+
+### Nowhere 1.5 / 1.6 / 1.7 / 1.8
+
+* **1.5** changes the wire protocol and removes Portal `spec`. Upgrade strips `spec=` from `url.conf`. A custom `alpn` may be written; the default `now/1` is omitted
+* **1.6** adds the read-only TUI and structured local telemetry (Linux only). The wire protocol matches 1.5
+* **1.7** adds `next=`, upstream RTT in EVENT logs / telemetry / the TUI, and a seven-hop budget. Stored `nowhere://` run URLs are migrated to `vector://`
+* **1.8** replaces `pool=<n>` with TLS Mux (`mux=0|1`). Upgrade strips `pool=` and writes `mux=1` for `tcp/tcp` when `mux=` is missing. Mux is offered when a direction is `tcp` or `mix`; `udp/udp` omits `mux`
+* **1.8.3** Vector and Portal `next` accept `up` / `down` of `tcp`, `udp`, or `mix`. `mix/mix` resolves per flow to `tcp/tcp` or `udp/udp`
+
+Portal and clients must share a major version. The 1.5+ wire protocol requires upgrading both sides together.
+
+Keep or restore 1.x (any non-empty key is accepted):
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --version v1.8.3 \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --lang en
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@:2077?tls=1&net=mix
+```
+
+Downgrade:
+
+```bash
+sudo ./oh-nowhere.sh --upgrade --version v1.8.3 --lang en
+```
+
+Menu item 10 / `--tui` runs `nowhere tui` on 2.x and on 1.6+ (read-only; upstream RTT from 1.7). nw3 runs `nowhere status` instead.
+
+### 2.x / 1.x Share URIs
+
+```text
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp#Nowhere-US-203
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/tcp:2006/udp:2017?up=udp&down=udp&morph=1#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp&mux=1&sni=relay.example#Nowhere-DE-45
+nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?up=udp&down=udp&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
+```
+
+The last example is a 2.2 self-signed Portal.
+
+* A dual-carrier compact Portal is shared as `host:port`. A `mix` side is published as `udp` (`net=mix` is `mix` on both sides, so `up=udp&down=udp`). Explicit paths or split ports use the path form
+* TCP-only / UDP-only endpoints share `up=tcp&down=tcp` or `up=udp&down=udp`. 2.0 does not add `mux=1`; 1.x `tcp/tcp` does
+* Portal `morph=1` is copied onto the share URI
+* `tls`, `crt`, `key`, `net`, `dial`, `rate`, `etar`, `log`, outbound `socks`, and `next` are omitted
+* On 1.x a non-default `alpn` is copied; 2.0 share URIs never include `alpn`
+* On 2.2+ with `tls=1`, an available fingerprint is embedded as `pin=`

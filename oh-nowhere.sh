@@ -30,6 +30,10 @@ SCRIPT_REPO="ohmycggk/oh-nowhere"
 SCRIPT_BRANCH="main"
 SCRIPT_FILENAME="oh-nowhere.sh"
 SCRIPT_RAW_URL="https://raw.githubusercontent.com/${SCRIPT_REPO}/${SCRIPT_BRANCH}/${SCRIPT_FILENAME}"
+# Manager release. Semver, independent of the Nowhere binary (selected with
+# --version). Bump MAJOR for a breaking manager change, MINOR for capability,
+# PATCH for a fix. Keep this line parseable: ^SCRIPT_VERSION="[0-9.]+"$
+SCRIPT_VERSION="1.0.0"
 DEFAULT_ALPN="now/1"
 # Recent GNU Nowhere assets are built on Ubuntu 24.04 (glibc 2.39).
 GNU_MIN_GLIBC="2.39"
@@ -69,6 +73,8 @@ ARG_URL=""
 ARG_MORPH=""
 ARG_TCP_PORT=""
 ARG_UDP_PORT=""
+ARG_OUT=""
+ARG_ALLOW_BREAKING=""
 DEFAULT_SOCKS_IN="127.0.0.1:1080"
 TARGET_VERSION=""
 
@@ -158,7 +164,7 @@ set_language() {
             MSG[warn_migrated_v20]="Migrated %s to Nowhere 2.0 endpoint syntax (net=/alpn= removed)"
             MSG[warn_migrated_v1]="Migrated %s back to Nowhere 1.x URL syntax (net= restored, morph= removed)"
             MSG[warn_split_ports_v1]="Independent TCP/UDP ports cannot be represented in Nowhere 1.x; collapsing to a single port"
-            MSG[warn_alpn_ignored]="Nowhere 2.0 uses fixed ALPN nw2; ignoring --alpn"
+            MSG[warn_alpn_ignored]="Nowhere 2.x uses fixed ALPN nw2 and nw3 does not accept alpn=; ignoring --alpn"
             MSG[err_opt_v2_only]="%s requires Nowhere 2.0+ (use --version v2.x or a 2.x install)"
             MSG[err_freebsd_v1]="FreeBSD packages exist only for Nowhere 2.0+; refusing to install %s"
             MSG[err_freebsd_asset]="No FreeBSD package for %s (expected %s). FreeBSD assets require Nowhere 2.0+ and must be published on that tag"
@@ -170,6 +176,38 @@ set_language() {
             MSG[err_invalid_next_key]="Invalid next= upstream key: Nowhere 2.2+ requires 32-64 lowercase hexadecimal characters on both ends"
             MSG[err_invalid_morph]="Invalid morph: %s (use 0 or 1)"
             MSG[err_invalid_net]="Invalid carrier mode: %s (use mix|tcp|udp)"
+            MSG[err_next_removed]="nw3 removed next= chaining: the Portal exits direct, through a SOCKS5 upstream (out=endpoint) or via a registered Egress (out=egress)"
+            MSG[err_invalid_out]="Invalid Portal exit: %s (use direct|socks|egress)"
+            MSG[err_egress_needs_udp]="out=egress requires a QUIC (UDP) listener on the Portal endpoint"
+            MSG[err_egress_requires_nw3]="The egress role requires Nowhere 3 (nw3); this node is on another protocol line"
+            MSG[err_preflight_next]="Migration to nw3 would drop next= chaining in %s; reconfigure the Portal exit (out=) first"
+            MSG[err_preflight_egress]="Migration back to Nowhere 2.x would drop the egress role in %s; reconfigure as a Portal or Vector first"
+            MSG[err_migrate_requires_flag]="Cross-line upgrade requires --allow-protocol-breaking-upgrade or an interactive MIGRATE confirmation"
+            MSG[err_out_socks_required]="out=socks requires a SOCKS5 upstream endpoint (use --socks <addr>)"
+            MSG[prompt_migrate_confirm]="Type MIGRATE to confirm the protocol-line switch: "
+            MSG[info_migrate_flag_accepted]="--allow-protocol-breaking-upgrade accepted; stored URLs will be migrated"
+            MSG[warn_url_backed_up]="Existing config backed up to %s"
+            MSG[warn_protocol_switch]="Protocol line switch: Nowhere %s -> %s"
+            MSG[warn_nw3_protocol]="Nowhere 3 (nw3) is a new protocol line: keys are exactly 32 lowercase hex, Portal exits use out=, Vector uses in=, and unknown parameters are ignored"
+            MSG[warn_migrated_nw3]="Migrated %s to nw3 endpoint syntax (socks=/next= -> out=, single carrier, morph stated explicitly)"
+            MSG[warn_migrated_nw2]="Migrated %s back to Nowhere 2.2 endpoint syntax (out= -> socks=/next=)"
+            MSG[warn_vector_carrier_fallback]="up/down carriers differ; nw3 Vector supports one carrier, using tcp"
+            MSG[warn_vector_key_peer]="nw3 requires the Vector key to match the Portal key exactly; verify the peer before starting"
+            MSG[label_out]="Out:       %s"
+            MSG[label_in]="In:        %s"
+            MSG[info_launching_status]="Launching nowhere status (read-only snapshot; Ctrl+C to exit)..."
+            MSG[info_configure_egress]="Configuring a Nowhere 3 Egress (outbound QUIC to a Portal with out=egress)"
+            MSG[info_egress_no_inbound]="Egress makes an outbound QUIC connection; no inbound firewall port is required on this host."
+            MSG[prompt_outbound_mode_nw3]="Portal exit (direct/socks/egress) [%s]: "
+            MSG[prompt_carrier_single]="Carrier (tcp/udp) [%s]: "
+            MSG[label_share_link_tcp]="Import link (TLS/TCP):"
+            MSG[label_share_link_udp]="Import link (QUIC/UDP):"
+            MSG[help_opt_out]="      --out <direct|socks|egress>  Portal exit mode (nw3)"
+            MSG[help_opt_allow_breaking]="      --allow-protocol-breaking-upgrade  Confirm an nw2<->nw3 protocol-line switch"
+            MSG[mf_out]="Portal exit"
+            MSG[mf_out_socks]="SOCKS upstream"
+            MSG[mf_in]="SOCKS listener (in)"
+            MSG[mf_carrier]="Carrier"
             MSG[help_opt_next]="      --next <key@host:port>  Portal native upstream (mutually exclusive with --socks)"
             MSG[prompt_outbound_mode]="Portal outbound (none/socks/next) [%s]: "
             MSG[prompt_next]="Native upstream Portal next=<key@host:port> [%s]: "
@@ -224,7 +262,8 @@ set_language() {
             MSG[prompt_fetch_pin]="Fetch the Portal certificate fingerprint automatically? [Y/n]: "
             MSG[status_title]="========== Nowhere Status =========="
             MSG[label_binary]="Binary:     %s"
-            MSG[label_version]="Version:    %s"
+            MSG[label_script]="Script:     %s"
+            MSG[label_version]="Nowhere:    %s"
             MSG[label_system]="OS:         %s %s"
             MSG[label_arch_libc]="Arch/libc:  %s/%s"
             MSG[label_config_file]="Config:     %s"
@@ -232,7 +271,8 @@ set_language() {
             MSG[not_configured]="not configured"
             MSG[label_svc_status]="Service status:"
             MSG[menu_title]="      Nowhere Manager"
-            MSG[menu_version]="  Version:  %s"
+            MSG[menu_script]="  Script:   %s"
+            MSG[menu_version]="  Nowhere:  %s"
             MSG[menu_system]="  OS:       %s %s"
             MSG[menu_arch]="  Arch:     %s/%s"
             MSG[menu_install]="One-click install"
@@ -244,7 +284,7 @@ set_language() {
             MSG[menu_stop]="Stop service"
             MSG[menu_restart]="Restart service"
             MSG[menu_status]="Show status"
-            MSG[menu_tui]="Launch Nowhere TUI"
+            MSG[menu_tui]="TUI / instance status"
             MSG[menu_share]="Show share URI"
             MSG[menu_qr]="Install QR code support"
             MSG[menu_lang]="Change language"
@@ -323,7 +363,7 @@ set_language() {
             MSG[help_opt_share]="  -q, --share            Show share URI"
             MSG[help_opt_tui]="      --tui              Launch Nowhere TUI dashboard"
             MSG[help_opt_uninstall]="  --uninstall            One-shot uninstall"
-            MSG[help_opt_type]="      --type <portal|vector>  Service role (default portal)"
+            MSG[help_opt_type]="      --type <portal|vector|egress>  Service role (default portal; egress needs nw3)"
             MSG[help_opt_url]="      --url <uri>       Import portal://, vector://, or nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <key>        Shared key (Nowhere 2.2+ Portal keys: 32-64 lowercase hex)"
             MSG[help_opt_port]="  -p, --port <port>      Listen port (default 2077)"
@@ -364,7 +404,7 @@ set_language() {
             MSG[label_role]="Role:       %s"
             MSG[label_socks]="SOCKS:      %s"
             MSG[err_binary_missing]="nowhere binary not installed; install first"
-            MSG[err_invalid_type]="Invalid type: %s (use portal|vector)"
+            MSG[err_invalid_type]="Invalid type: %s (use portal|vector|egress)"
             MSG[err_invalid_carrier]="Invalid carrier: %s (use tcp|udp|mix)"
             MSG[err_invalid_url]="Invalid URL: %s"
             MSG[err_socks_required]="Vector requires an inbound SOCKS listen address"
@@ -372,6 +412,8 @@ set_language() {
             MSG[info_launching_tui]="Launching Nowhere TUI (read-only; Ctrl+C to exit)..."
             MSG[info_upgrading_script]="Upgrading oh-nowhere management script..."
             MSG[info_script_already_latest]="Script is already up to date"
+            MSG[info_script_versions]="Script version: %s -> %s"
+            MSG[warn_script_older]="Remote script %s is older than this copy %s"
             MSG[info_script_restart_hint]="Restart this script to use the new version"
             MSG[prompt_script_upgrade_confirm]="Download and replace the current script? [y/N]: "
             MSG[label_script_path]="Script path: %s"
@@ -380,6 +422,7 @@ set_language() {
             MSG[err_script_verify]="Downloaded script failed syntax check"
             MSG[err_script_install]="Failed to install updated script"
             MSG[help_opt_upgrade_script]="      --upgrade-script     Upgrade this oh-nowhere script from GitHub"
+            MSG[help_opt_script_version]="      --script-version     Print this oh-nowhere version and exit"
             MSG[help_opt_help]="  -h, --help             Show help"
             ;;
         ru)
@@ -442,7 +485,7 @@ set_language() {
             MSG[warn_migrated_v20]="%s мигрирован на синтаксис endpoint Nowhere 2.0 (net=/alpn= удалены)"
             MSG[warn_migrated_v1]="%s возвращён к синтаксису URL Nowhere 1.x (net= восстановлен, morph= удалён)"
             MSG[warn_split_ports_v1]="Раздельные порты TCP/UDP нельзя выразить в Nowhere 1.x; сведены к одному порту"
-            MSG[warn_alpn_ignored]="Nowhere 2.0 использует фиксированный ALPN nw2; --alpn игнорируется"
+            MSG[warn_alpn_ignored]="Nowhere 2.x использует фиксированный ALPN nw2, а nw3 не принимает alpn=; --alpn игнорируется"
             MSG[err_opt_v2_only]="%s требует Nowhere 2.0+ (укажите --version v2.x или установите 2.x)"
             MSG[err_freebsd_v1]="Пакеты FreeBSD есть только для Nowhere 2.0+; установка %s отклонена"
             MSG[err_freebsd_asset]="Нет пакета FreeBSD для %s (ожидался %s). Пакеты FreeBSD есть только в Nowhere 2.0+, и этот tag должен содержать freebsd-архив"
@@ -454,6 +497,38 @@ set_language() {
             MSG[err_invalid_next_key]="Неверный ключ next=: Nowhere 2.2+ требует 32–64 строчных hex-символа с обеих сторон"
             MSG[err_invalid_morph]="Неверный morph: %s (0 или 1)"
             MSG[err_invalid_net]="Неверный режим носителя: %s (mix|tcp|udp)"
+            MSG[err_next_removed]="nw3 убрал цепочки next=: Portal выходит напрямую, через SOCKS5-апстрим (out=endpoint) или через зарегистрированный Egress (out=egress)"
+            MSG[err_invalid_out]="Неверный выход Portal: %s (direct|socks|egress)"
+            MSG[err_egress_needs_udp]="out=egress требует QUIC (UDP) приёмник на endpoint Portal"
+            MSG[err_egress_requires_nw3]="Роль egress требует Nowhere 3 (nw3); этот узел на другой линии протокола"
+            MSG[err_preflight_next]="Миграция на nw3 отбросит цепочку next= в %s; сначала перенастройте выход Portal (out=)"
+            MSG[err_preflight_egress]="Возврат на Nowhere 2.x отбросит роль egress в %s; перенастройте как Portal или Vector"
+            MSG[err_migrate_requires_flag]="Переход между линиями требует --allow-protocol-breaking-upgrade или интерактивного подтверждения MIGRATE"
+            MSG[err_out_socks_required]="out=socks требует адрес SOCKS5-апстрима (используйте --socks <addr>)"
+            MSG[prompt_migrate_confirm]="Введите MIGRATE для подтверждения перехода на другую линию протокола: "
+            MSG[info_migrate_flag_accepted]="--allow-protocol-breaking-upgrade принят; сохранённые URL будут мигрированы"
+            MSG[warn_url_backed_up]="Существующий конфиг сохранён в %s"
+            MSG[warn_protocol_switch]="Смена линии протокола: Nowhere %s -> %s"
+            MSG[warn_nw3_protocol]="Nowhere 3 (nw3) — новая линия протокола: ключи ровно 32 строчных hex, выход Portal через out=, Vector через in=, неизвестные параметры игнорируются"
+            MSG[warn_migrated_nw3]="%s мигрирован в синтаксис endpoint nw3 (socks=/next= -> out=, один носитель, morph указан явно)"
+            MSG[warn_migrated_nw2]="%s мигрирован обратно в синтаксис Nowhere 2.2 (out= -> socks=/next=)"
+            MSG[warn_vector_carrier_fallback]="носители up/down различаются; nw3 Vector поддерживает один носитель, используется tcp"
+            MSG[warn_vector_key_peer]="nw3 требует точного совпадения ключа Vector с ключом Portal; проверьте peer перед запуском"
+            MSG[label_out]="Выход:     %s"
+            MSG[label_in]="Вход:      %s"
+            MSG[info_launching_status]="Запуск nowhere status (снимок только для чтения; Ctrl+C для выхода)..."
+            MSG[info_configure_egress]="Настройка Egress Nowhere 3 (исходящий QUIC к Portal с out=egress)"
+            MSG[info_egress_no_inbound]="Egress устанавливает исходящее QUIC-соединение; входящий порт файрвола на этом хосте не нужен."
+            MSG[prompt_outbound_mode_nw3]="Выход Portal (direct/socks/egress) [%s]: "
+            MSG[prompt_carrier_single]="Носитель (tcp/udp) [%s]: "
+            MSG[label_share_link_tcp]="Ссылка импорта (TLS/TCP):"
+            MSG[label_share_link_udp]="Ссылка импорта (QUIC/UDP):"
+            MSG[help_opt_out]="      --out <direct|socks|egress>  Режим выхода Portal (nw3)"
+            MSG[help_opt_allow_breaking]="      --allow-protocol-breaking-upgrade  Подтвердить переход линии протокола nw2<->nw3"
+            MSG[mf_out]="Выход Portal"
+            MSG[mf_out_socks]="SOCKS-апстрим"
+            MSG[mf_in]="SOCKS-приёмник (in)"
+            MSG[mf_carrier]="Носитель"
             MSG[help_opt_next]="      --next <key@host:port>  Следующий Portal (next=; несовместимо с --socks)"
             MSG[prompt_outbound_mode]="Исходящий Portal (none/socks/next) [%s]: "
             MSG[prompt_next]="Следующий Portal next=<key@host:port> [%s]: "
@@ -508,7 +583,8 @@ set_language() {
             MSG[prompt_fetch_pin]="Получить отпечаток сертификата Portal автоматически? [Y/n]: "
             MSG[status_title]="========== Статус Nowhere =========="
             MSG[label_binary]="Бинарник:   %s"
-            MSG[label_version]="Версия:     %s"
+            MSG[label_script]="Скрипт:     %s"
+            MSG[label_version]="Nowhere:    %s"
             MSG[label_system]="ОС:         %s %s"
             MSG[label_arch_libc]="Arch/libc:  %s/%s"
             MSG[label_config_file]="Конфиг:     %s"
@@ -516,7 +592,8 @@ set_language() {
             MSG[not_configured]="не настроен"
             MSG[label_svc_status]="Статус службы:"
             MSG[menu_title]="      Менеджер Nowhere"
-            MSG[menu_version]="  Версия:   %s"
+            MSG[menu_script]="  Скрипт:   %s"
+            MSG[menu_version]="  Nowhere:  %s"
             MSG[menu_system]="  ОС:       %s %s"
             MSG[menu_arch]="  Arch:     %s/%s"
             MSG[menu_install]="Однократная установка"
@@ -528,7 +605,7 @@ set_language() {
             MSG[menu_stop]="Остановить службу"
             MSG[menu_restart]="Перезапустить службу"
             MSG[menu_status]="Показать статус"
-            MSG[menu_tui]="Запустить Nowhere TUI"
+            MSG[menu_tui]="TUI / статус инстанса"
             MSG[menu_share]="Показать URI для шаринга"
             MSG[menu_qr]="Установить поддержку QR"
             MSG[menu_lang]="Сменить язык"
@@ -607,7 +684,7 @@ set_language() {
             MSG[help_opt_share]="  -q, --share            URI для шаринга"
             MSG[help_opt_tui]="      --tui              Запустить панель Nowhere TUI"
             MSG[help_opt_uninstall]="  --uninstall            Удаление"
-            MSG[help_opt_type]="      --type <portal|vector>  Роль службы (по умолчанию portal)"
+            MSG[help_opt_type]="      --type <portal|vector|egress>  Роль службы (по умолчанию portal; egress требует nw3)"
             MSG[help_opt_url]="      --url <uri>       Импорт portal://, vector:// или nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <ключ>       Общий ключ (ключи Portal в Nowhere 2.2+: 32–64 строчных hex)"
             MSG[help_opt_port]="  -p, --port <порт>      Порт (по умолчанию 2077)"
@@ -648,7 +725,7 @@ set_language() {
             MSG[label_role]="Роль:       %s"
             MSG[label_socks]="SOCKS:      %s"
             MSG[err_binary_missing]="Бинарник nowhere не установлен"
-            MSG[err_invalid_type]="Неверный тип: %s (portal|vector)"
+            MSG[err_invalid_type]="Неверный тип: %s (portal|vector|egress)"
             MSG[err_invalid_carrier]="Неверный носитель: %s (tcp|udp|mix)"
             MSG[err_invalid_url]="Неверный URL: %s"
             MSG[err_socks_required]="Vector требует адрес входящего SOCKS"
@@ -656,6 +733,8 @@ set_language() {
             MSG[info_launching_tui]="Запуск Nowhere TUI (только чтение; Ctrl+C для выхода)..."
             MSG[info_upgrading_script]="Обновление скрипта управления oh-nowhere..."
             MSG[info_script_already_latest]="Скрипт уже актуален"
+            MSG[info_script_versions]="Версия скрипта: %s -> %s"
+            MSG[warn_script_older]="Удалённый скрипт %s старше этой копии %s"
             MSG[info_script_restart_hint]="Перезапустите скрипт, чтобы использовать новую версию"
             MSG[prompt_script_upgrade_confirm]="Скачать и заменить текущий скрипт? [y/N]: "
             MSG[label_script_path]="Путь к скрипту: %s"
@@ -664,6 +743,7 @@ set_language() {
             MSG[err_script_verify]="Скачанный скрипт не прошёл проверку синтаксиса"
             MSG[err_script_install]="Не удалось установить обновлённый скрипт"
             MSG[help_opt_upgrade_script]="      --upgrade-script     Обновить этот скрипт oh-nowhere с GitHub"
+            MSG[help_opt_script_version]="      --script-version     Показать версию oh-nowhere и выйти"
             MSG[help_opt_help]="  -h, --help             Справка"
             ;;
         *)
@@ -727,7 +807,7 @@ set_language() {
             MSG[warn_migrated_v20]="已将 %s 迁移为 Nowhere 2.0 端点语法（已移除 net=/alpn=）"
             MSG[warn_migrated_v1]="已将 %s 还原为 Nowhere 1.x URL 语法（已恢复 net=，已移除 morph=）"
             MSG[warn_split_ports_v1]="Nowhere 1.x 无法表达独立 TCP/UDP 端口，已折叠为单一端口"
-            MSG[warn_alpn_ignored]="Nowhere 2.0 固定 ALPN 为 nw2；忽略 --alpn"
+            MSG[warn_alpn_ignored]="Nowhere 2.x 固定 ALPN 为 nw2，nw3 不接受 alpn=；忽略 --alpn"
             MSG[err_opt_v2_only]="%s 需要 Nowhere 2.0+（请使用 --version v2.x 或安装 2.x）"
             MSG[err_freebsd_v1]="FreeBSD 安装包仅适用于 Nowhere 2.0+；拒绝安装 %s"
             MSG[err_freebsd_asset]="版本 %s 没有 FreeBSD 安装包（期望文件 %s）。FreeBSD 资产仅适用于 Nowhere 2.0+，且该 tag 必须已发布 freebsd 包"
@@ -739,6 +819,38 @@ set_language() {
             MSG[err_invalid_next_key]="无效的 next= 上游密钥: Nowhere 2.2+ 要求两端均为 32-64 位小写十六进制字符"
             MSG[err_invalid_morph]="无效 morph: %s（使用 0 或 1）"
             MSG[err_invalid_net]="无效载体模式: %s（使用 mix|tcp|udp）"
+            MSG[err_next_removed]="nw3 已移除 next= 链式转发：Portal 出口改为 direct、SOCKS5 上游（out=端点）或已注册的 Egress（out=egress）"
+            MSG[err_invalid_out]="无效的 Portal 出口: %s（使用 direct|socks|egress）"
+            MSG[err_egress_needs_udp]="out=egress 需要 Portal 端点具备 QUIC（UDP）监听"
+            MSG[err_egress_requires_nw3]="egress 角色需要 Nowhere 3（nw3）；当前节点位于另一协议线"
+            MSG[err_preflight_next]="迁移到 nw3 会丢弃 %s 中的 next= 链式配置；请先重新配置 Portal 出口（out=）"
+            MSG[err_preflight_egress]="迁移回 Nowhere 2.x 会丢弃 %s 中的 egress 角色；请先改为 Portal 或 Vector"
+            MSG[err_migrate_requires_flag]="跨协议线升级需要 --allow-protocol-breaking-upgrade 或交互输入 MIGRATE 确认"
+            MSG[err_out_socks_required]="out=socks 需要 SOCKS5 上游地址（使用 --socks <addr>）"
+            MSG[prompt_migrate_confirm]="输入 MIGRATE 确认切换协议线: "
+            MSG[info_migrate_flag_accepted]="已接受 --allow-protocol-breaking-upgrade；将迁移已保存的 URL"
+            MSG[warn_url_backed_up]="现有配置已备份到 %s"
+            MSG[warn_protocol_switch]="协议线切换: Nowhere %s -> %s"
+            MSG[warn_nw3_protocol]="Nowhere 3（nw3）是新协议线：密钥须恰好 32 位小写 hex，Portal 出口用 out=，Vector 用 in=，未知参数会被忽略"
+            MSG[warn_migrated_nw3]="已将 %s 迁移为 nw3 端点语法（socks=/next= → out=，单载体，morph 显式声明）"
+            MSG[warn_migrated_nw2]="已将 %s 迁移回 Nowhere 2.2 端点语法（out= → socks=/next=）"
+            MSG[warn_vector_carrier_fallback]="up/down 载体不一致；nw3 Vector 仅支持单载体，使用 tcp"
+            MSG[warn_vector_key_peer]="nw3 要求 Vector 密钥与 Portal 密钥完全一致；启动前请核实对端"
+            MSG[label_out]="出口:     %s"
+            MSG[label_in]="入口:     %s"
+            MSG[info_launching_status]="正在启动 nowhere status（只读快照；Ctrl+C 退出）..."
+            MSG[info_configure_egress]="正在配置 Nowhere 3 Egress（向 out=egress 的 Portal 发起出站 QUIC 连接）"
+            MSG[info_egress_no_inbound]="Egress 只发起出站 QUIC 连接；本机无需开放任何入站防火墙端口。"
+            MSG[prompt_outbound_mode_nw3]="Portal 出口 (direct/socks/egress) [%s]: "
+            MSG[prompt_carrier_single]="载体 (tcp/udp) [%s]: "
+            MSG[label_share_link_tcp]="导入链接 (TLS/TCP):"
+            MSG[label_share_link_udp]="导入链接 (QUIC/UDP):"
+            MSG[help_opt_out]="      --out <direct|socks|egress>  Portal 出口模式 (nw3)"
+            MSG[help_opt_allow_breaking]="      --allow-protocol-breaking-upgrade  确认 nw2<->nw3 协议线切换"
+            MSG[mf_out]="Portal 出口"
+            MSG[mf_out_socks]="SOCKS 上游"
+            MSG[mf_in]="SOCKS 监听 (in)"
+            MSG[mf_carrier]="载体"
             MSG[help_opt_next]="      --next <key@host:port>  Portal 原生上游（与 --socks 互斥）"
             MSG[prompt_outbound_mode]="Portal 出站模式 (none/socks/next) [%s]: "
             MSG[prompt_next]="原生上游 Portal next=<key@host:port> [%s]: "
@@ -793,7 +905,8 @@ set_language() {
             MSG[prompt_fetch_pin]="是否自动获取 Portal 证书指纹? [Y/n]: "
             MSG[status_title]="========== Nowhere 状态 =========="
             MSG[label_binary]="二进制位置: %s"
-            MSG[label_version]="当前版本:   %s"
+            MSG[label_script]="脚本版本:   %s"
+            MSG[label_version]="Nowhere:    %s"
             MSG[label_system]="系统:       %s %s"
             MSG[label_arch_libc]="架构/libc:  %s/%s"
             MSG[label_config_file]="配置文件:   %s"
@@ -801,7 +914,8 @@ set_language() {
             MSG[not_configured]="未配置"
             MSG[label_svc_status]="服务状态："
             MSG[menu_title]="      Nowhere 管理脚本"
-            MSG[menu_version]="  当前版本: %s"
+            MSG[menu_script]="  脚本版本: %s"
+            MSG[menu_version]="  Nowhere:  %s"
             MSG[menu_system]="  系统:     %s %s"
             MSG[menu_arch]="  架构:     %s/%s"
             MSG[menu_install]="一键安装"
@@ -813,7 +927,7 @@ set_language() {
             MSG[menu_stop]="停止服务"
             MSG[menu_restart]="重启服务"
             MSG[menu_status]="查看状态"
-            MSG[menu_tui]="启动 Nowhere TUI"
+            MSG[menu_tui]="TUI / 实例状态"
             MSG[menu_share]="显示分享 URI"
             MSG[menu_qr]="安装二维码支持库"
             MSG[menu_lang]="切换语言"
@@ -892,7 +1006,7 @@ set_language() {
             MSG[help_opt_share]="  -q, --share            显示分享 URI"
             MSG[help_opt_tui]="      --tui              启动 Nowhere TUI 面板"
             MSG[help_opt_uninstall]="  --uninstall            一键卸载"
-            MSG[help_opt_type]="      --type <portal|vector>  服务角色 (默认 portal)"
+            MSG[help_opt_type]="      --type <portal|vector|egress>  服务角色 (默认 portal; egress 需要 nw3)"
             MSG[help_opt_url]="      --url <uri>       导入 portal://、vector:// 或 nowhere:// URI"
             MSG[help_opt_key]="  -k, --key <密钥>       指定共享密钥（Nowhere 2.2+ Portal 密钥: 32-64 位小写十六进制）"
             MSG[help_opt_port]="  -p, --port <端口>      指定监听端口 (默认 2077)"
@@ -933,7 +1047,7 @@ set_language() {
             MSG[label_role]="角色:       %s"
             MSG[label_socks]="SOCKS:      %s"
             MSG[err_binary_missing]="未安装 nowhere 二进制，请先安装"
-            MSG[err_invalid_type]="无效类型: %s（使用 portal|vector）"
+            MSG[err_invalid_type]="无效类型: %s（使用 portal|vector|egress）"
             MSG[err_invalid_carrier]="无效载体: %s（使用 tcp|udp|mix）"
             MSG[err_invalid_url]="无效 URL: %s"
             MSG[err_socks_required]="Vector 需要入站 SOCKS 监听地址"
@@ -941,6 +1055,8 @@ set_language() {
             MSG[info_launching_tui]="正在启动 Nowhere TUI（只读；Ctrl+C 退出）..."
             MSG[info_upgrading_script]="正在升级 oh-nowhere 管理脚本..."
             MSG[info_script_already_latest]="脚本已是最新版本"
+            MSG[info_script_versions]="脚本版本: %s -> %s"
+            MSG[warn_script_older]="远端脚本 %s 比当前副本 %s 更旧"
             MSG[info_script_restart_hint]="请重新运行脚本以使用新版本"
             MSG[prompt_script_upgrade_confirm]="下载并替换当前脚本? [y/N]: "
             MSG[label_script_path]="脚本路径: %s"
@@ -949,6 +1065,7 @@ set_language() {
             MSG[err_script_verify]="下载的脚本未通过语法检查"
             MSG[err_script_install]="安装更新脚本失败"
             MSG[help_opt_upgrade_script]="      --upgrade-script     从 GitHub 升级本 oh-nowhere 脚本"
+            MSG[help_opt_script_version]="      --script-version     打印本 oh-nowhere 版本后退出"
             MSG[help_opt_help]="  -h, --help             显示帮助"
             ;;
     esac
@@ -1155,9 +1272,10 @@ check_dependencies() {
 
 # ==================== Helpers ====================
 generate_random_key() {
-    # Nowhere 2.2+ requires 32-64 lowercase hexadecimal Portal keys; prefer the
-    # binary's own generator when it is available, fall back to /dev/urandom.
-    # 1.x accepts any non-empty key and keeps the historical random word.
+    # Nowhere 2.2+ and Nowhere 3 both require exactly 32 lowercase hexadecimal
+    # characters; prefer the binary's own generator when it is available, fall
+    # back to /dev/urandom. 1.x accepts any non-empty key and keeps the
+    # historical random word.
     if is_v2_profile; then
         local key=""
         if command -v nowhere &>/dev/null; then
@@ -1301,25 +1419,38 @@ config_major() {
         version_major "$TARGET_VERSION"
         return
     fi
-    case "$AUTO_MODE" in
-        install|upgrade)
-            echo 2
-            return
-            ;;
-    esac
     local inst
     inst=$(get_installed_version)
     if [[ -n "$inst" ]]; then
         version_major "$inst"
         return
     fi
-    echo 2
+    # Fresh installs (and any undetermined state) follow the current line: nw3.
+    echo 3
 }
 
 is_v2_profile() {
     local major
     major=$(config_major)
     [[ -n "$major" && "$major" -ge 2 ]]
+}
+
+# Protocol generation of the current or planned configuration: nw1|nw2|nw3.
+# nw2 and nw3 share the v2 endpoint-path syntax but are wire-incompatible.
+proto_profile() {
+    case "$(config_major)" in
+        1) echo nw1 ;;
+        2) echo nw2 ;;
+        *) echo nw3 ;;
+    esac
+}
+
+is_nw3_profile() {
+    [[ "$(proto_profile)" == "nw3" ]]
+}
+
+is_nw2_profile() {
+    [[ "$(proto_profile)" == "nw2" ]]
 }
 
 # Effective Nowhere version string for the current/planned operation.
@@ -1366,7 +1497,8 @@ version_part() {
 }
 
 # Nowhere 2.2+ enforces 32-64 lowercase hex Portal keys and mandatory
-# certificate verification. Empty version counts as latest (2.2+).
+# certificate verification. Empty version counts as latest (2.2+). Key rules
+# themselves are resolved per protocol profile (valid_key_for_profile).
 is_v22_profile() {
     local v
     v=$(effective_version)
@@ -1376,6 +1508,28 @@ is_v22_profile() {
 
 valid_v22_key() {
     [[ "$1" =~ ^[0-9a-f]{32,64}$ ]]
+}
+
+# Shared-key rules per protocol generation and role. nw3 requires exactly 32
+# lowercase hex characters for Portal, Vector and Egress alike; nw2.2 tightens
+# Portal keys to 32-64 hex while Vector keys stay free text; nw1 takes any key.
+valid_key_for_profile() {
+    local key="$1" role="${2:-portal}"
+    case "$(proto_profile)" in
+        nw3)
+            [[ "$key" =~ ^[0-9a-f]{32}$ ]]
+            ;;
+        nw2)
+            if [[ "$role" == "portal" ]] && is_v22_profile; then
+                valid_v22_key "$key"
+            else
+                [[ -n "$key" ]]
+            fi
+            ;;
+        *)
+            [[ -n "$key" ]]
+            ;;
+    esac
 }
 
 default_carrier() {
@@ -1478,15 +1632,16 @@ read_port_checked() {
     done
 }
 
-# Reads a shared key interactively. On Nowhere 2.2+ a Portal key must be
-# 32-64 lowercase hexadecimal characters; invalid input is reported and the
-# prompt repeats. Empty input keeps the current key. Sets ENTERED_KEY.
+# Reads a shared key interactively. Key rules follow the protocol profile:
+# nw3 demands exactly 32 lowercase hex for every role, nw2.2 demands 32-64 hex
+# for Portal keys. Invalid input is reported and the prompt repeats. Empty
+# input keeps the current key. Sets ENTERED_KEY.
 read_key_checked() {
     local role="$1" current="$2" input=""
     while true; do
         read -rp "$(t prompt_key "$current")" input
         [[ -z "$input" ]] && break
-        if [[ "$role" == "portal" ]] && is_v22_profile && ! valid_v22_key "$input"; then
+        if ! valid_key_for_profile "$input" "$role"; then
             log_error "$(t err_invalid_key)"
             continue
         fi
@@ -1510,9 +1665,15 @@ enforce_v2_only_options() {
         log_error "$(t err_opt_v2_only "$opt")"
         exit 1
     fi
+    # alpn is a 1.x-only parameter: ignored on both v2+ lines.
     if is_v2_profile && [[ -n "$ARG_ALPN" ]]; then
         log_warn "$(t warn_alpn_ignored)"
         ARG_ALPN=""
+    fi
+    # nw3 removed next= chaining; Portal exits through out= instead.
+    if is_nw3_profile && [[ -n "$ARG_NEXT" ]]; then
+        log_error "$(t err_next_removed)"
+        exit 1
     fi
 }
 
@@ -1748,7 +1909,7 @@ validate_policy_on_endpoint() {
     return 0
 }
 
-# role=portal|vector, host, tcp_port, udp_port → endpoint without scheme/key
+# role=portal|vector|egress, host, tcp_port, udp_port → endpoint without scheme/key
 build_endpoint_hostpart() {
     local role="$1"
     local host="$2"
@@ -1762,6 +1923,33 @@ build_endpoint_hostpart() {
         fi
     fi
     host_fmt=$(format_url_host "$host")
+
+    if is_nw3_profile; then
+        # nw3 rejects empty hosts outright, so the Portal wildcard is explicit.
+        # Vector and Egress declare exactly one carrier per endpoint.
+        if [[ "$role" == "portal" ]]; then
+            if [[ -n "$tcp_port" && -n "$udp_port" && "$tcp_port" == "$udp_port" ]]; then
+                printf '*:%s' "$tcp_port"
+            elif [[ -n "$tcp_port" && -n "$udp_port" ]]; then
+                printf '*/tcp:%s/udp:%s' "$tcp_port" "$udp_port"
+            elif [[ -n "$tcp_port" ]]; then
+                printf '*/tcp:%s' "$tcp_port"
+            elif [[ -n "$udp_port" ]]; then
+                printf '*/udp:%s' "$udp_port"
+            else
+                printf '*'
+            fi
+            return
+        fi
+        if [[ -n "$tcp_port" ]]; then
+            printf '%s/tcp:%s' "$host_fmt" "$tcp_port"
+        elif [[ -n "$udp_port" ]]; then
+            printf '%s/udp:%s' "$host_fmt" "$udp_port"
+        else
+            return 1
+        fi
+        return
+    fi
 
     if [[ -n "$tcp_port" && -n "$udp_port" && "$tcp_port" == "$udp_port" ]]; then
         if [[ "$role" == "portal" && "$host" == "*" ]]; then
@@ -1849,6 +2037,46 @@ collect_portal_outbound_interactive() {
 
     local dc
     dc=$(default_carrier)
+
+    if is_nw3_profile; then
+        # nw3 Portal exits direct (default), through a SOCKS5 upstream or via a
+        # registered Egress. sni/pin and the carrier options do not apply.
+        local default_socks="${socks:-proxy.example:1080}"
+        local mode_input=""
+        read -rp "$(t prompt_outbound_mode_nw3 "direct")" mode_input
+        mode_input="${mode_input:-direct}"
+
+        socks=""
+        next=""
+        case "$mode_input" in
+            direct|none|"")
+                OUT_OUTBOUND="direct"
+                ;;
+            socks)
+                OUT_OUTBOUND="socks"
+                read -rp "$(t prompt_socks_out "$default_socks")" socks_input
+                [[ -n "$socks_input" ]] && socks="$socks_input"
+                [[ -z "$socks" ]] && socks="$default_socks"
+                ;;
+            egress)
+                OUT_OUTBOUND="egress"
+                ;;
+            *)
+                log_error "$(t err_invalid_type "$mode_input")"
+                return 1
+                ;;
+        esac
+
+        OUT_SOCKS="$socks"
+        OUT_NEXT=""
+        OUT_UP=""
+        OUT_DOWN=""
+        OUT_MUX=""
+        OUT_SNI=""
+        OUT_PIN=""
+        return 0
+    fi
+
     local default_socks="${socks:-proxy.example:1080}"
     local default_next="${next:-origin-key@origin.example:2077}"
     local outbound_mode
@@ -1920,6 +2148,7 @@ collect_portal_outbound_interactive() {
     OUT_MUX="$mux"
     OUT_SNI="$sni"
     OUT_PIN="$pin"
+    OUT_OUTBOUND=""
     return 0
 }
 
@@ -1989,6 +2218,7 @@ detect_url_role() {
     case "$url" in
         portal://*) echo "portal" ;;
         vector://*|nowhere://*) echo "vector" ;;
+        egress://*) echo "egress" ;;
         *) echo "" ;;
     esac
 }
@@ -1998,6 +2228,7 @@ get_service_description() {
     [[ -f "$URL_FILE" ]] && url=$(tr -d '\n' < "$URL_FILE")
     case "$(detect_url_role "$url")" in
         vector) echo "Nowhere Vector" ;;
+        egress) echo "Nowhere Egress" ;;
         *) echo "Nowhere Portal" ;;
     esac
 }
@@ -2095,6 +2326,8 @@ build_portal_url() {
     local morph="${15:-}"
     local tcp_port="${16:-}"
     local udp_port="${17:-}"
+    # nw3 only: "" | direct | socks | egress (Portal exit selection).
+    local out_mode="${18:-}"
 
     if ! validate_portal_outbound "$socks" "$next"; then
         return 1
@@ -2102,23 +2335,63 @@ build_portal_url() {
     if ! validate_morph_value "$morph"; then
         return 1
     fi
-    if is_v22_profile; then
-        if ! valid_v22_key "$key"; then
-            log_error "$(t err_invalid_key)"
+    if ! valid_key_for_profile "$key" "portal"; then
+        log_error "$(t err_invalid_key)"
+        return 1
+    fi
+    if [[ -n "$next" && "$next" != "none" && "$next" == *@* ]]; then
+        local next_key="${next%@*}"
+        if ! valid_key_for_profile "$next_key" "portal"; then
+            log_error "$(t err_invalid_next_key)"
             return 1
-        fi
-        if [[ -n "$next" && "$next" != "none" && "$next" == *@* ]]; then
-            local next_key="${next%@*}"
-            if ! valid_v22_key "$next_key"; then
-                log_error "$(t err_invalid_next_key)"
-                return 1
-            fi
         fi
     fi
 
     local dc hostpart url
     dc=$(default_carrier)
     net="${net:-mix}"
+
+    if is_nw3_profile; then
+        if ! resolve_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"; then
+            return 1
+        fi
+        if [[ "$tls" != "1" && "$tls" != "2" ]]; then
+            log_error "$(t err_invalid_tls "$tls")"
+            return 1
+        fi
+        # nw3 has no next= chaining: the Portal exits direct, through a SOCKS5
+        # upstream (out=endpoint) or through a registered Egress (out=egress).
+        if [[ -n "$next" && "$next" != "none" ]]; then
+            log_error "$(t err_next_removed)"
+            return 1
+        fi
+        local out_exit="direct"
+        if [[ "$out_mode" == "egress" ]]; then
+            if [[ -z "$RESOLVED_UDP" ]]; then
+                log_error "$(t err_egress_needs_udp)"
+                return 1
+            fi
+            out_exit="egress"
+        elif [[ -n "$socks" && "$socks" != "none" ]]; then
+            out_exit="$socks"
+        fi
+        hostpart=$(build_endpoint_hostpart "portal" "*" "$RESOLVED_TCP" "$RESOLVED_UDP")
+        url="portal://${key}@${hostpart}?tls=${tls}"
+        if [[ "$tls" == "2" ]]; then
+            url="${url}&crt=${crt}&key=${keyfile}"
+        fi
+        if [[ "$out_exit" == "egress" ]]; then
+            url="${url}&out=egress"
+        elif [[ "$out_exit" != "direct" ]]; then
+            url="${url}&out=$(encode_socks_endpoint "$out_exit")"
+        else
+            url="${url}&out=direct"
+        fi
+        # nw3 defaults morph to 1; state it explicitly so peers cannot disagree.
+        url="${url}&morph=${morph:-1}"
+        echo "$url"
+        return
+    fi
 
     if is_v2_profile; then
         if ! resolve_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"; then
@@ -2199,6 +2472,53 @@ build_vector_url() {
         return 1
     fi
 
+    if is_nw3_profile; then
+        # nw3 Vector: one carrier, local SOCKS5 listener via in=, no up/down/mux.
+        if ! valid_key_for_profile "$key" "vector"; then
+            log_error "$(t err_invalid_key)"
+            return 1
+        fi
+        if [[ -z "$socks" || "$socks" == "none" ]]; then
+            log_error "$(t err_socks_required)"
+            return 1
+        fi
+        local carrier="$net"
+        if [[ "$carrier" != "tcp" && "$carrier" != "udp" ]]; then
+            # Compatibility shim: fold the v2-style up/down pair onto one carrier.
+            if [[ "$up" == "$down" ]]; then
+                carrier="$up"
+                [[ "$carrier" == "mix" ]] && carrier="tcp"
+            else
+                carrier="tcp"
+                log_warn "$(t warn_vector_carrier_fallback)"
+            fi
+        fi
+        local carrier_port=""
+        if [[ "$carrier" == "tcp" ]]; then
+            carrier_port="${tcp_port:-$port}"
+        else
+            carrier_port="${udp_port:-$port}"
+        fi
+        if [[ -z "$carrier_port" ]] || ! validate_port_value "$carrier_port"; then
+            return 1
+        fi
+        if [[ "$carrier" == "tcp" ]]; then
+            hostpart=$(build_endpoint_hostpart "vector" "$host" "$carrier_port" "")
+        else
+            hostpart=$(build_endpoint_hostpart "vector" "$host" "" "$carrier_port")
+        fi
+        url="vector://${key}@${hostpart}?in=$(encode_socks_endpoint "$socks")"
+        if [[ -n "$sni" && "$sni" != "none" ]]; then
+            url="${url}&sni=${sni}"
+        fi
+        if [[ -n "$pin" && "$pin" != "none" ]]; then
+            url="${url}&pin=${pin}"
+        fi
+        url="${url}&morph=${morph:-1}"
+        echo "$url"
+        return
+    fi
+
     if is_v2_profile; then
         if ! resolve_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"; then
             return 1
@@ -2217,6 +2537,45 @@ build_vector_url() {
             url="${url}&alpn=$(url_encode_alpn "$alpn")"
         fi
     fi
+    if [[ -n "$sni" && "$sni" != "none" ]]; then
+        url="${url}&sni=${sni}"
+    fi
+    if [[ -n "$pin" && "$pin" != "none" ]]; then
+        url="${url}&pin=${pin}"
+    fi
+    echo "$url"
+}
+
+# nw3 Egress: egress://KEY@HOST/udp:PORT?morph=N[&sni&pin]. Egress dials out to a
+# Portal configured with out=egress and needs no inbound firewall port.
+build_egress_url() {
+    local key="$1"
+    local host="$2"
+    local udp_port="$3"
+    local sni="${4:-}"
+    local pin="${5:-}"
+    local morph="${6:-}"
+
+    if ! valid_key_for_profile "$key" "egress"; then
+        log_error "$(t err_invalid_key)"
+        return 1
+    fi
+    if [[ -z "$host" || "$host" == "*" ]]; then
+        log_error "$(t err_portal_host_required)"
+        return 1
+    fi
+    if [[ -z "$udp_port" ]] || ! validate_port_value "$udp_port"; then
+        return 1
+    fi
+    if ! validate_morph_value "$morph"; then
+        return 1
+    fi
+
+    local hostpart url
+    hostpart=$(build_endpoint_hostpart "egress" "$host" "" "$udp_port") || return 1
+    # morph is always stated (nw3 defaults to 1) and leads the query, mirroring
+    # the upstream egress:// form; sni/pin follow.
+    url="egress://${key}@${hostpart}?morph=${morph:-1}"
     if [[ -n "$sni" && "$sni" != "none" ]]; then
         url="${url}&sni=${sni}"
     fi
@@ -2335,6 +2694,14 @@ migrate_stored_url() {
         url="$converted"
     fi
 
+    if is_nw3_profile; then
+        # 1.x URLs are first normalized onto v2 syntax (net= -> carrier path),
+        # then rewritten onto the nw3 line. nw2.2 key rules do not apply.
+        migrate_url_to_v2
+        migrate_url_to_nw3
+        return
+    fi
+
     if is_v2_profile; then
         migrate_url_to_v2
     else
@@ -2377,6 +2744,306 @@ migrate_portal_url_for_v22() {
         echo "$url" > "$URL_FILE"
         log_warn "$(t warn_key_regenerated "$URL_FILE")"
     fi
+}
+
+# Read-only check run before any cross-line (nw2 <-> nw3) switch. Returns 1
+# and logs the reason when the stored configuration cannot be carried over, so
+# the caller can abort with the current binary and config untouched.
+preflight_profile_switch() {
+    local from_major="$1" to_major="$2"
+    [[ "$from_major" == "$to_major" ]] && return 0
+    [[ -f "$URL_FILE" ]] || return 0
+
+    local url role
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+    role=$(detect_url_role "$url")
+
+    if [[ "$to_major" == "3" ]]; then
+        # nw3 removed next= chaining; Portal exits via out= instead.
+        local next_val
+        next_val=$(get_query_param "$url" "next")
+        if [[ -n "$next_val" && "$next_val" != "none" ]]; then
+            log_error "$(t err_preflight_next)"
+            return 1
+        fi
+        return 0
+    fi
+
+    # Downgrade: the Egress role and out=egress have no nw2 representation.
+    if [[ "$role" == "egress" ]]; then
+        log_error "$(t err_preflight_egress)"
+        return 1
+    fi
+    if [[ "$(get_query_param "$url" "out")" == "egress" ]]; then
+        log_error "$(t err_preflight_egress)"
+        return 1
+    fi
+    return 0
+}
+
+# nw2/nw1 Portal -> nw3 Portal. socks= becomes out= (direct when absent), morph
+# is stated explicitly (nw3 defaults to 1 while nw2 defaulted to 0), up/down/
+# mux/sni/pin/alpn/net/log are dropped, and a non-conforming key is regenerated
+# because nw3 demands exactly 32 lowercase hex. rate/etar/dial* survive as-is.
+# Idempotent: a URL already carrying out= is left untouched.
+migrate_portal_url_to_nw3() {
+    [[ -f "$URL_FILE" ]] || return 0
+    local url
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+    [[ "$(detect_url_role "$url")" == "portal" ]] || return 0
+    [[ -n "$(get_query_param "$url" "out")" ]] && return 0
+
+    parse_url_authority "$url"
+
+    local socks_raw out_exit="direct"
+    socks_raw=$(get_query_param "$url" "socks")
+    [[ -n "$socks_raw" ]] && out_exit="$socks_raw"
+
+    local tcp_port udp_port
+    if url_has_carrier_path "$url"; then
+        tcp_port="$PARSE_TCP_PORT"
+        udp_port="$PARSE_UDP_PORT"
+    else
+        tcp_port="$PARSE_PORT"
+        udp_port="$PARSE_PORT"
+    fi
+    local hostpart
+    hostpart=$(build_endpoint_hostpart "portal" "*" "$tcp_port" "$udp_port") || return 1
+
+    local tls crt keyfile
+    tls=$(get_query_param "$url" "tls")
+    [[ "$tls" == "1" || "$tls" == "2" ]] || tls="1"
+    crt=$(get_query_param "$url" "crt")
+    keyfile=$(get_query_param "$url" "key")
+
+    local morph
+    morph=$(get_query_param "$url" "morph")
+    [[ "$morph" == "1" ]] || morph="0"
+
+    # Keep parameters nw3 also understands but this migration does not manage.
+    local leftover="$url" p
+    for p in tls crt key net alpn socks next up down mux sni pin morph out in; do
+        leftover=$(strip_query_param "$leftover" "$p")
+    done
+    if [[ "$leftover" == *\?* ]]; then
+        leftover="${leftover#*\?}"
+    else
+        leftover=""
+    fi
+
+    local newurl="portal://${PARSE_KEY}@${hostpart}?tls=${tls}"
+    if [[ "$tls" == "2" && -n "$crt" ]]; then
+        newurl="${newurl}&crt=${crt}&key=${keyfile}"
+    fi
+    if [[ "$out_exit" == "direct" ]]; then
+        newurl="${newurl}&out=direct"
+    else
+        newurl="${newurl}&out=${out_exit}"
+    fi
+    newurl="${newurl}&morph=${morph}"
+    [[ -n "$leftover" ]] && newurl="${newurl}&${leftover}"
+
+    local newkey=""
+    if [[ -n "$PARSE_KEY" ]] && ! valid_key_for_profile "$PARSE_KEY" "portal"; then
+        newkey=$(generate_random_key)
+        newurl=$(rewrite_url_key "$newurl" "$newkey")
+    fi
+
+    echo "$newurl" > "$URL_FILE"
+    log_warn "$(t warn_migrated_nw3 "$URL_FILE")"
+    if [[ -n "$newkey" ]]; then
+        log_warn "$(t warn_key_regenerated "$URL_FILE")"
+    fi
+}
+
+# nw2/nw1 Vector -> nw3 Vector. socks= becomes in=, the up/down pair converges
+# onto one carrier (mix and mismatched directions fold to tcp with a warning),
+# up/down/mux/alpn/net are dropped and sni/pin/morph/rate/etar are preserved.
+# The key belongs to the peer Portal, so a non-conforming key is only reported.
+# Idempotent: a URL already carrying in= is left untouched.
+migrate_vector_url_to_nw3() {
+    [[ -f "$URL_FILE" ]] || return 0
+    local url
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+    [[ "$(detect_url_role "$url")" == "vector" ]] || return 0
+    [[ -n "$(get_query_param "$url" "in")" ]] && return 0
+
+    parse_url_authority "$url"
+
+    local dc
+    dc=$(default_carrier)
+    local socks_raw up down carrier carrier_port
+    socks_raw=$(get_query_param "$url" "socks")
+    [[ -z "$socks_raw" ]] && socks_raw="$DEFAULT_SOCKS_IN"
+    up=$(get_query_param "$url" "up"); up="${up:-$dc}"
+    down=$(get_query_param "$url" "down"); down="${down:-$dc}"
+    if [[ "$up" == "$down" ]]; then
+        carrier="$up"
+        [[ "$carrier" == "mix" ]] && carrier="tcp"
+    else
+        carrier="tcp"
+        log_warn "$(t warn_vector_carrier_fallback)"
+    fi
+    if url_has_carrier_path "$url"; then
+        if [[ "$carrier" == "tcp" ]]; then
+            carrier_port="${PARSE_TCP_PORT:-$PARSE_PORT}"
+        else
+            carrier_port="${PARSE_UDP_PORT:-$PARSE_PORT}"
+        fi
+    else
+        carrier_port="$PARSE_PORT"
+    fi
+    if [[ -z "$PARSE_HOST" ]]; then
+        log_error "$(t err_portal_host_required)"
+        return 1
+    fi
+    if [[ -z "$carrier_port" ]] || ! validate_port_value "$carrier_port"; then
+        return 1
+    fi
+
+    local morph sni pin
+    morph=$(get_query_param "$url" "morph")
+    [[ "$morph" == "1" ]] || morph="0"
+    sni=$(get_query_param "$url" "sni")
+    pin=$(get_query_param "$url" "pin")
+
+    local leftover="$url" p
+    for p in socks next up down mux alpn net morph in out tls crt key sni pin; do
+        leftover=$(strip_query_param "$leftover" "$p")
+    done
+    if [[ "$leftover" == *\?* ]]; then
+        leftover="${leftover#*\?}"
+    else
+        leftover=""
+    fi
+
+    local newurl="vector://${PARSE_KEY}@${PARSE_HOST}/${carrier}:${carrier_port}?in=${socks_raw}"
+    if [[ -n "$sni" && "$sni" != "none" ]]; then
+        newurl="${newurl}&sni=${sni}"
+    fi
+    if [[ -n "$pin" && "$pin" != "none" ]]; then
+        newurl="${newurl}&pin=${pin}"
+    fi
+    newurl="${newurl}&morph=${morph}"
+    [[ -n "$leftover" ]] && newurl="${newurl}&${leftover}"
+
+    if [[ -n "$PARSE_KEY" ]] && ! valid_key_for_profile "$PARSE_KEY" "vector"; then
+        log_warn "$(t warn_vector_key_peer)"
+    fi
+
+    echo "$newurl" > "$URL_FILE"
+    log_warn "$(t warn_migrated_nw3 "$URL_FILE")"
+}
+
+# Dispatches the stored URL onto the nw3 line. next= chaining cannot be
+# migrated (preflight blocks the switch before this runs); on that input the
+# URL is left untouched and 1 is returned so callers can fail-stop.
+migrate_url_to_nw3() {
+    [[ -f "$URL_FILE" ]] || return 0
+    is_nw3_profile || return 0
+
+    local url role
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+    role=$(detect_url_role "$url")
+    [[ "$role" == "egress" ]] && return 0
+
+    local next_val
+    next_val=$(get_query_param "$url" "next")
+    if [[ -n "$next_val" && "$next_val" != "none" ]]; then
+        log_error "$(t err_preflight_next)"
+        return 1
+    fi
+
+    if [[ "$role" == "portal" ]]; then
+        migrate_portal_url_to_nw3
+    else
+        migrate_vector_url_to_nw3
+    fi
+}
+
+# nw3 -> nw2 downgrade migration. out= becomes socks= (direct is dropped, the
+# nw2 default), in= becomes socks=, a single carrier expands to up=down=carrier
+# and morph=1 is kept while morph=0 is dropped. Egress configurations have no
+# nw2 representation and abort (preflight blocks them earlier). Idempotent: a
+# URL without out=/in= is left untouched.
+migrate_url_to_nw2() {
+    [[ -f "$URL_FILE" ]] || return 0
+    local url role
+    url=$(tr -d '\n' < "$URL_FILE")
+    [[ -z "$url" ]] && return 0
+    role=$(detect_url_role "$url")
+
+    if [[ "$role" == "egress" ]]; then
+        log_error "$(t err_preflight_egress)"
+        return 1
+    fi
+
+    local out_val in_val
+    out_val=$(get_query_param "$url" "out")
+    in_val=$(get_query_param "$url" "in")
+    if [[ -z "$out_val" && -z "$in_val" ]]; then
+        return 0
+    fi
+    if [[ "$out_val" == "egress" ]]; then
+        log_error "$(t err_preflight_egress)"
+        return 1
+    fi
+
+    parse_url_authority "$url"
+    local ep
+    ep="${url%%\?*}"
+    ep="${ep%%#*}"
+    ep="${ep#*@}"
+
+    local morph tls crt keyfile
+    morph=$(get_query_param "$url" "morph")
+    tls=$(get_query_param "$url" "tls"); tls="${tls:-1}"
+    crt=$(get_query_param "$url" "crt")
+    keyfile=$(get_query_param "$url" "key")
+
+    local leftover="$url" p
+    for p in out in morph tls crt key socks next up down mux sni pin net alpn; do
+        leftover=$(strip_query_param "$leftover" "$p")
+    done
+    if [[ "$leftover" == *\?* ]]; then
+        leftover="${leftover#*\?}"
+    else
+        leftover=""
+    fi
+
+    local newurl
+    if [[ "$role" == "portal" ]]; then
+        newurl="portal://${PARSE_KEY}@${ep}?tls=${tls}"
+        if [[ "$tls" == "2" && -n "$crt" ]]; then
+            newurl="${newurl}&crt=${crt}&key=${keyfile}"
+        fi
+        if [[ -n "$out_val" && "$out_val" != "direct" ]]; then
+            newurl="${newurl}&socks=${out_val}"
+        fi
+        [[ "$morph" == "1" ]] && newurl="${newurl}&morph=1"
+    else
+        # Single nw3 carrier expands to the nw2 up/down pair.
+        local carrier up_down
+        if [[ "$ep" == */udp:* ]]; then
+            carrier="udp"
+        else
+            carrier="tcp"
+        fi
+        up_down="${carrier}"
+        newurl="vector://${PARSE_KEY}@${ep}?up=${up_down}&down=${up_down}"
+        if [[ -n "$in_val" ]]; then
+            newurl="${newurl}&socks=${in_val}"
+        fi
+        [[ "$morph" == "1" ]] && newurl="${newurl}&morph=1"
+    fi
+    [[ -n "$leftover" ]] && newurl="${newurl}&${leftover}"
+
+    echo "$newurl" > "$URL_FILE"
+    log_warn "$(t warn_migrated_nw2 "$URL_FILE")"
 }
 
 migrate_url_to_v2() {
@@ -2524,7 +3191,13 @@ build_fingerprint_probe_url() {
         return 1
     fi
     [[ -z "$RESOLVED_TCP" ]] && return 1
-    local url="nowhere://${key}@${host}/tcp:${RESOLVED_TCP}"
+    local url
+    if is_nw3_profile; then
+        # nw3 fingerprints over the compact host:port form with an explicit net=.
+        url="nowhere://${key}@${host}:${RESOLVED_TCP}?net=tcp"
+    else
+        url="nowhere://${key}@${host}/tcp:${RESOLVED_TCP}"
+    fi
     [[ -n "$sni" && "$sni" != "none" ]] && url=$(append_query_param "$url" "sni=${sni}")
     [[ "$morph" == "1" ]] && url=$(append_query_param "$url" "morph=1")
     FINGERPRINT_PROBE_URL="$url"
@@ -2560,6 +3233,41 @@ get_latest_version() {
     fi
 
     echo "$version"
+}
+
+# Resolves the upgrade target without --version. An installed nw2/1.x node
+# stays on its own line (newest v2.* from the recent releases, falling back to
+# the v2.2.1 LTS baseline); an nw3 node or a fresh install follows the latest
+# stable release. Prints the target version, or an empty line for "latest".
+# --allow-protocol-breaking-upgrade without --version jumps to latest (nw3).
+NW2_LTS_VERSION="v2.2.1"
+resolve_upgrade_target() {
+    if [[ -n "$ARG_VERSION" ]]; then
+        echo "$ARG_VERSION"
+        return 0
+    fi
+    if [[ -n "$TARGET_VERSION" ]]; then
+        echo "$TARGET_VERSION"
+        return 0
+    fi
+    if [[ -n "$ARG_ALLOW_BREAKING" ]]; then
+        echo ""
+        return 0
+    fi
+
+    local inst major v latest2=""
+    inst=$(get_installed_version)
+    if [[ -n "$inst" ]]; then
+        major=$(version_major "$inst")
+        if [[ "$major" == "1" || "$major" == "2" ]]; then
+            while IFS= read -r v; do
+                [[ "$v" == v2.* ]] && { latest2="$v"; break; }
+            done < <(list_github_versions)
+            echo "${latest2:-$NW2_LTS_VERSION}"
+            return 0
+        fi
+    fi
+    echo ""
 }
 
 get_asset_name() {
@@ -2648,6 +3356,9 @@ install_nowhere() {
         log_success "$(t ok_upgraded "$version")"
     else
         log_success "$(t ok_installed "$version")"
+        if [[ "$(version_major "$version")" -ge 3 ]]; then
+            log_warn "$(t warn_nw3_protocol)"
+        fi
     fi
 }
 
@@ -2686,6 +3397,10 @@ uninstall_nowhere() {
 }
 
 # ==================== Service setup ====================
+# The launcher resolves the installed binary's protocol generation at start
+# time (a later upgrade may replace the binary), converts legacy nowhere://
+# share URLs accordingly, and refuses to start when url.conf still carries
+# Nowhere 2.x-only parameters that Nowhere 3 would silently ignore.
 write_launcher() {
     migrate_stored_url
     cat > "$LAUNCHER" <<'EOF'
@@ -2694,24 +3409,50 @@ URL_FILE="/etc/nowhere/url.conf"
 [[ -f "$URL_FILE" ]] || { echo "error: missing ${URL_FILE}" >&2; exit 1; }
 NOWHERE_URL=$(tr -d '\n' < "$URL_FILE")
 [[ -n "$NOWHERE_URL" ]] || { echo "error: ${URL_FILE} is empty" >&2; exit 1; }
-if [[ "$NOWHERE_URL" == nowhere://* ]]; then
-    FRAG=""
-    BASE="$NOWHERE_URL"
-    if [[ "$BASE" == *#* ]]; then
-        FRAG="${BASE#*#}"
-        BASE="${BASE%%#*}"
-    fi
-    NOWHERE_URL="vector://${BASE#nowhere://}"
-    if ! echo "$NOWHERE_URL" | grep -qE '[?&]socks='; then
-        if [[ "$NOWHERE_URL" == *\?* ]]; then
-            NOWHERE_URL="${NOWHERE_URL}&socks=127.0.0.1:1080"
-        else
-            NOWHERE_URL="${NOWHERE_URL}?socks=127.0.0.1:1080"
+NOWHERE_BIN="/usr/local/bin/nowhere"
+MAJOR=$("$NOWHERE_BIN" --version 2>/dev/null | grep -oE '[0-9]+' | head -n1)
+if [[ "$MAJOR" == "3" ]]; then
+    if [[ "$NOWHERE_URL" == portal://* || "$NOWHERE_URL" == vector://* ]]; then
+        if echo "$NOWHERE_URL" | grep -qE '[?&](up|down|mux|next|socks|net|alpn|log|pool|spec)='; then
+            echo "error: ${URL_FILE} still uses Nowhere 2.x parameters (up/down/mux/next/socks/net/alpn) that Nowhere 3 silently ignores; re-run oh-nowhere to migrate this node" >&2
+            exit 1
         fi
     fi
-    printf '%s\n' "$NOWHERE_URL" > "$URL_FILE"
+    if [[ "$NOWHERE_URL" == nowhere://* ]]; then
+        BASE="$NOWHERE_URL"
+        if [[ "$BASE" == *#* ]]; then
+            BASE="${BASE%%#*}"
+        fi
+        NOWHERE_URL="vector://${BASE#nowhere://}"
+        if ! echo "$NOWHERE_URL" | grep -qE '[?&]in='; then
+            if [[ "$NOWHERE_URL" == *\?* ]]; then
+                NOWHERE_URL="${NOWHERE_URL}&in=127.0.0.1:1080"
+            else
+                NOWHERE_URL="${NOWHERE_URL}?in=127.0.0.1:1080"
+            fi
+        fi
+        printf '%s\n' "$NOWHERE_URL" > "$URL_FILE"
+    fi
+else
+    if [[ "$NOWHERE_URL" == nowhere://* ]]; then
+        FRAG=""
+        BASE="$NOWHERE_URL"
+        if [[ "$BASE" == *#* ]]; then
+            FRAG="${BASE#*#}"
+            BASE="${BASE%%#*}"
+        fi
+        NOWHERE_URL="vector://${BASE#nowhere://}"
+        if ! echo "$NOWHERE_URL" | grep -qE '[?&]socks='; then
+            if [[ "$NOWHERE_URL" == *\?* ]]; then
+                NOWHERE_URL="${NOWHERE_URL}&socks=127.0.0.1:1080"
+            else
+                NOWHERE_URL="${NOWHERE_URL}?socks=127.0.0.1:1080"
+            fi
+        fi
+        printf '%s\n' "$NOWHERE_URL" > "$URL_FILE"
+    fi
 fi
-exec /usr/local/bin/nowhere "$NOWHERE_URL"
+exec "$NOWHERE_BIN" "$NOWHERE_URL"
 EOF
     chmod +x "$LAUNCHER"
 }
@@ -2934,7 +3675,8 @@ install_specific_version() {
 
 # ==================== Interactive configure ====================
 apply_imported_url() {
-    # Sets IMPORTED_ROLE / IMPORTED_URL from portal://, vector://, or nowhere://.
+    # Sets IMPORTED_ROLE / IMPORTED_URL from portal://, vector://, egress://
+    # or nowhere://.
     local raw="$1"
     local socks_override="${2:-}"
     IMPORTED_URL=""
@@ -2955,6 +3697,10 @@ apply_imported_url() {
             ;;
         portal://*)
             IMPORTED_ROLE="portal"
+            IMPORTED_URL="$raw"
+            ;;
+        egress://*)
+            IMPORTED_ROLE="egress"
             IMPORTED_URL="$raw"
             ;;
         *)
@@ -3024,7 +3770,7 @@ configure_nowhere() {
         fi
     elif [[ -n "$ARG_TYPE" ]]; then
         case "$ARG_TYPE" in
-            portal|vector) ROLE="$ARG_TYPE" ;;
+            portal|vector|egress) ROLE="$ARG_TYPE" ;;
             *)
                 log_error "$(t err_invalid_type "$ARG_TYPE")"
                 return 1
@@ -3033,6 +3779,11 @@ configure_nowhere() {
     elif [[ -n "$existing_url" ]]; then
         ROLE=$(detect_url_role "$existing_url")
         ROLE="${ROLE:-portal}"
+    fi
+
+    if [[ "$ROLE" == "egress" ]] && ! is_nw3_profile; then
+        log_error "$(t err_egress_requires_nw3)"
+        return 1
     fi
 
     local skip_prompts=false
@@ -3048,10 +3799,14 @@ configure_nowhere() {
         type_input="$(echo "$type_input" | tr -d '[:space:]')"
         if [[ -n "$type_input" ]]; then
             case "$type_input" in
-                portal|vector)
+                portal|vector|egress)
                     ROLE="$type_input"
+                    if [[ "$ROLE" == "egress" ]] && ! is_nw3_profile; then
+                        log_error "$(t err_egress_requires_nw3)"
+                        return 1
+                    fi
                     ;;
-                nowhere://*|vector://*|portal://*)
+                nowhere://*|vector://*|portal://*|egress://*)
                     if apply_imported_url "$type_input" "$ARG_SOCKS"; then
                         imported=true
                         ROLE="$IMPORTED_ROLE"
@@ -3076,6 +3831,9 @@ configure_nowhere() {
     local default_host="" default_socks="" default_next="" default_up="$dc" default_down="$dc"
     local default_mux="0" default_sni="" default_pin="" default_morph=""
     local default_tcp_port="" default_udp_port=""
+    local default_outbound="direct"
+    local morph_default="0"
+    is_nw3_profile && morph_default="1"
     default_key=$(generate_random_key)
     default_host=$(load_share_host)
 
@@ -3088,16 +3846,45 @@ configure_nowhere() {
             default_udp_port="$PARSE_UDP_PORT"
             [[ -n "$PARSE_CARRIERS" ]] && default_net="$PARSE_CARRIERS"
         fi
-        if [[ "$(detect_url_role "$existing_url")" == "vector" ]]; then
+        local existing_role
+        existing_role=$(detect_url_role "$existing_url")
+        if [[ "$existing_role" == "vector" ]]; then
             [[ -n "$PARSE_HOST" ]] && default_host="$PARSE_HOST"
-            default_up=$(get_query_param "$existing_url" "up"); default_up=${default_up:-$dc}
-            default_down=$(get_query_param "$existing_url" "down"); default_down=${default_down:-$dc}
-            default_mux=$(get_query_param "$existing_url" "mux"); default_mux=${default_mux:-0}
+            default_socks=$(get_query_param "$existing_url" "in")
+            [[ -z "$default_socks" ]] && default_socks=$(get_query_param "$existing_url" "socks")
+            default_socks=$(url_decode_simple "${default_socks:-$DEFAULT_SOCKS_IN}")
             default_sni=$(get_query_param "$existing_url" "sni")
             default_pin=$(get_query_param "$existing_url" "pin")
             default_morph=$(get_query_param "$existing_url" "morph")
-            default_socks=$(get_query_param "$existing_url" "socks")
-            default_socks=$(url_decode_simple "${default_socks:-$DEFAULT_SOCKS_IN}")
+            if is_nw3_profile; then
+                # nw3 Vector declares exactly one carrier through its endpoint.
+                if [[ "$existing_url" == */udp:* ]]; then
+                    default_net="udp"
+                else
+                    default_net="tcp"
+                fi
+            else
+                default_up=$(get_query_param "$existing_url" "up"); default_up=${default_up:-$dc}
+                default_down=$(get_query_param "$existing_url" "down"); default_down=${default_down:-$dc}
+                default_mux=$(get_query_param "$existing_url" "mux"); default_mux=${default_mux:-0}
+            fi
+        elif [[ "$existing_role" == "egress" ]]; then
+            [[ -n "$PARSE_HOST" ]] && default_host="$PARSE_HOST"
+            default_udp_port="${PARSE_UDP_PORT:-$PARSE_PORT}"
+            default_net="udp"
+            default_sni=$(get_query_param "$existing_url" "sni")
+            default_pin=$(get_query_param "$existing_url" "pin")
+            default_morph=$(get_query_param "$existing_url" "morph")
+        elif is_nw3_profile; then
+            # nw3 Portal exit replaces socks=/next= with out=.
+            local existing_out
+            existing_out=$(get_query_param "$existing_url" "out")
+            case "$existing_out" in
+                egress) default_outbound="egress" ;;
+                ""|direct) default_outbound="direct" ;;
+                *) default_outbound="socks"; default_socks="$existing_out" ;;
+            esac
+            default_morph=$(get_query_param "$existing_url" "morph")
         else
             local existing_net
             existing_net=$(get_query_param "$existing_url" "net")
@@ -3136,6 +3923,11 @@ configure_nowhere() {
     [[ -n "$ARG_MORPH" ]] && default_morph="$ARG_MORPH"
     [[ -n "$ARG_TCP_PORT" ]] && default_tcp_port="$ARG_TCP_PORT"
     [[ -n "$ARG_UDP_PORT" ]] && default_udp_port="$ARG_UDP_PORT"
+    [[ -n "$ARG_OUT" ]] && default_outbound="$ARG_OUT"
+    # On nw3, --socks is the compatibility alias for out=<SOCKS5 upstream>.
+    if is_nw3_profile && [[ -z "$ARG_OUT" && -n "$ARG_SOCKS" ]]; then
+        default_outbound="socks"
+    fi
 
     local default_name
     default_name=$(load_node_name)
@@ -3145,7 +3937,8 @@ configure_nowhere() {
     local socks="$default_socks" next="$default_next" up="$default_up" down="$default_down"
     local mux="$default_mux" sni="$default_sni" pin="$default_pin"
     local morph="$default_morph" tcp_port="$default_tcp_port" udp_port="$default_udp_port"
-    local cli_overrides="$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT"
+    local outbound="$default_outbound"
+    local cli_overrides="$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_OUT"
 
     if [[ "$skip_prompts" == true ]]; then
         key="${ARG_KEY:-$default_key}"
@@ -3166,7 +3959,20 @@ configure_nowhere() {
         tcp_port="${ARG_TCP_PORT:-$default_tcp_port}"
         udp_port="${ARG_UDP_PORT:-$default_udp_port}"
         if [[ "$imported" == true && -n "$IMPORTED_URL" && -z "$ARG_KEY" ]]; then
-            if [[ "$ROLE" == "vector" ]]; then
+            if [[ "$ROLE" == "egress" ]]; then
+                if [[ -z "$cli_overrides" ]]; then
+                    echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
+                    save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
+                    return
+                fi
+                parse_url_authority "$IMPORTED_URL"
+                key="${ARG_KEY:-$PARSE_KEY}"
+                host="${ARG_HOST:-$PARSE_HOST}"
+                udp_port="${ARG_UDP_PORT:-${PARSE_UDP_PORT:-$PARSE_PORT}}"
+                sni="${ARG_SNI:-$(get_query_param "$IMPORTED_URL" "sni")}"
+                pin="${ARG_PIN:-$(get_query_param "$IMPORTED_URL" "pin")}"
+                morph="${ARG_MORPH:-$(get_query_param "$IMPORTED_URL" "morph")}"
+            elif [[ "$ROLE" == "vector" ]]; then
                 if [[ -z "$cli_overrides" ]]; then
                     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${IMPORTED_URL}${NC}\n"
                     save_and_install_config "$IMPORTED_URL" "$host" "$name" "true"
@@ -3176,24 +3982,41 @@ configure_nowhere() {
                 key="${ARG_KEY:-$PARSE_KEY}"
                 host="${ARG_HOST:-$PARSE_HOST}"
                 port="${ARG_PORT:-$PARSE_PORT}"
-                socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "socks")")}"
+                socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "in")")}"
+                socks="${socks:-$(url_decode_simple "$(get_query_param "$IMPORTED_URL" "socks")")}"
                 socks="${socks:-$DEFAULT_SOCKS_IN}"
-                up="${ARG_UP:-$(get_query_param "$IMPORTED_URL" "up")}"
-                up="${up:-$dc}"
-                down="${ARG_DOWN:-$(get_query_param "$IMPORTED_URL" "down")}"
-                down="${down:-$dc}"
-                mux="${ARG_MUX:-$(get_query_param "$IMPORTED_URL" "mux")}"
                 sni="${ARG_SNI:-$(get_query_param "$IMPORTED_URL" "sni")}"
                 pin="${ARG_PIN:-$(get_query_param "$IMPORTED_URL" "pin")}"
                 morph="${ARG_MORPH:-$(get_query_param "$IMPORTED_URL" "morph")}"
-                if url_has_carrier_path "$IMPORTED_URL"; then
-                    tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
-                    udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
-                    net="${ARG_NET:-${PARSE_CARRIERS:-mix}}"
+                if is_nw3_profile; then
+                    if [[ "$IMPORTED_URL" == */udp:* ]]; then
+                        net="${ARG_NET:-udp}"
+                    else
+                        net="${ARG_NET:-tcp}"
+                    fi
+                    if [[ "$net" == "udp" ]]; then
+                        udp_port="${ARG_UDP_PORT:-${PARSE_UDP_PORT:-$PARSE_PORT}}"
+                        tcp_port=""
+                    else
+                        tcp_port="${ARG_TCP_PORT:-${PARSE_TCP_PORT:-$PARSE_PORT}}"
+                        udp_port=""
+                    fi
+                    up=""; down=""; mux=""
                 else
-                    tcp_port="${ARG_TCP_PORT:-}"
-                    udp_port="${ARG_UDP_PORT:-}"
-                    net="${ARG_NET:-mix}"
+                    up="${ARG_UP:-$(get_query_param "$IMPORTED_URL" "up")}"
+                    up="${up:-$dc}"
+                    down="${ARG_DOWN:-$(get_query_param "$IMPORTED_URL" "down")}"
+                    down="${down:-$dc}"
+                    mux="${ARG_MUX:-$(get_query_param "$IMPORTED_URL" "mux")}"
+                    if url_has_carrier_path "$IMPORTED_URL"; then
+                        tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
+                        udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
+                        net="${ARG_NET:-${PARSE_CARRIERS:-mix}}"
+                    else
+                        tcp_port="${ARG_TCP_PORT:-}"
+                        udp_port="${ARG_UDP_PORT:-}"
+                        net="${ARG_NET:-mix}"
+                    fi
                 fi
                 local ia
                 ia=$(get_query_param "$IMPORTED_URL" "alpn")
@@ -3237,7 +4060,61 @@ configure_nowhere() {
     fi
 
     local url=""
-    if [[ "$ROLE" == "vector" ]]; then
+    if [[ "$ROLE" == "egress" ]]; then
+        log_info "$(t info_configure_egress)"
+        if [[ "$skip_prompts" == false ]]; then
+            echo -e "${CYAN}$(t prompt_config_intro)${NC}"
+
+            read_key_checked "egress" "$key" || return 1
+            key="$ENTERED_KEY"
+
+            read -rp "$(t prompt_portal_host "$host")" host_input
+            if [[ "$host_input" == "-" ]]; then
+                host=""
+            elif [[ -n "$host_input" ]]; then
+                host="$host_input"
+            fi
+
+            local prev_port=""
+            [[ -n "$existing_url" ]] && prev_port="$udp_port"
+            udp_port=$(read_port_checked prompt_udp_port "${udp_port:-2077}" "$prev_port")
+
+            read -rp "$(t prompt_sni "$sni")" sni_input
+            if [[ "$sni_input" == "-" ]]; then
+                sni=""
+            elif [[ -n "$sni_input" ]]; then
+                sni="$sni_input"
+            fi
+
+            read -rp "$(t prompt_pin "$pin")" pin_input
+            if [[ "$pin_input" == "-" ]]; then
+                pin=""
+            elif [[ -n "$pin_input" ]]; then
+                pin="$pin_input"
+            fi
+
+            if [[ -z "$pin" ]]; then
+                log_warn "$(t warn_pin_required)"
+            fi
+
+            read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
+            [[ -n "$morph_input" ]] && morph="$morph_input"
+
+            read -rp "$(t prompt_name "$name")" name_input
+            if [[ "$name_input" == "-" ]]; then
+                name=""
+            elif [[ -n "$name_input" ]]; then
+                name="$name_input"
+            fi
+        fi
+
+        if [[ -z "$host" ]]; then
+            log_error "$(t err_portal_host_required)"
+            return 1
+        fi
+
+        url=$(build_egress_url "$key" "$host" "${udp_port:-$port}" "$sni" "$pin" "$morph") || return 1
+    elif [[ "$ROLE" == "vector" ]]; then
         log_info "$(t info_configure_vector)"
         if [[ "$skip_prompts" == false ]]; then
             echo -e "${CYAN}$(t prompt_config_intro)${NC}"
@@ -3256,25 +4133,47 @@ configure_nowhere() {
             [[ -n "$existing_url" ]] && prev_port="$port"
             port=$(read_port_checked prompt_port "$port" "$prev_port")
 
-            if is_v2_profile; then
-                read -rp "$(t prompt_net "$net")" net_input
-                [[ -n "$net_input" ]] && net="$net_input"
-                prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
-                tcp_port="$OUT_TCP_PORT"
-                udp_port="$OUT_UDP_PORT"
-            fi
-
-            read -rp "$(t prompt_up "$up")" up_input
-            [[ -n "$up_input" ]] && up="$up_input"
-
-            read -rp "$(t prompt_down "$down")" down_input
-            [[ -n "$down_input" ]] && down="$down_input"
-
-            if mux_applies "$up" "$down"; then
-                read -rp "$(t prompt_mux "$mux")" mux_input
-                [[ -n "$mux_input" ]] && mux="$mux_input"
+            if is_nw3_profile; then
+                # nw3 Vector declares exactly one carrier through its endpoint.
+                read -rp "$(t prompt_carrier_single "$net")" carrier_input
+                if [[ -n "$carrier_input" ]]; then
+                    case "$carrier_input" in
+                        tcp|udp) net="$carrier_input" ;;
+                        *)
+                            log_error "$(t err_invalid_carrier "$carrier_input")"
+                            return 1
+                            ;;
+                    esac
+                fi
+                [[ "$net" == "udp" ]] || net="tcp"
+                if [[ "$net" == "udp" ]]; then
+                    tcp_port=""
+                    udp_port="$port"
+                else
+                    tcp_port="$port"
+                    udp_port=""
+                fi
             else
-                mux=""
+                if is_v2_profile; then
+                    read -rp "$(t prompt_net "$net")" net_input
+                    [[ -n "$net_input" ]] && net="$net_input"
+                    prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
+                    tcp_port="$OUT_TCP_PORT"
+                    udp_port="$OUT_UDP_PORT"
+                fi
+
+                read -rp "$(t prompt_up "$up")" up_input
+                [[ -n "$up_input" ]] && up="$up_input"
+
+                read -rp "$(t prompt_down "$down")" down_input
+                [[ -n "$down_input" ]] && down="$down_input"
+
+                if mux_applies "$up" "$down"; then
+                    read -rp "$(t prompt_mux "$mux")" mux_input
+                    [[ -n "$mux_input" ]] && mux="$mux_input"
+                else
+                    mux=""
+                fi
             fi
 
             socks="${socks:-$DEFAULT_SOCKS_IN}"
@@ -3295,13 +4194,13 @@ configure_nowhere() {
                 pin="$pin_input"
             fi
 
-            if is_v22_profile && [[ -z "$pin" ]]; then
+            if [[ -z "$pin" ]] && { is_v22_profile || is_nw3_profile; }; then
                 log_warn "$(t warn_pin_required)"
                 if command -v nowhere &>/dev/null; then
                     local fetch_ans=""
                     read -rp "$(t prompt_fetch_pin)" fetch_ans
                     if [[ -z "$fetch_ans" || "$fetch_ans" =~ ^[Yy]$ ]]; then
-                        if fetch_pin_via_binary "$key" "$host" "$port" "$net" "$tcp_port" "$udp_port" "$sni" "${morph:-0}"; then
+                        if fetch_pin_via_binary "$key" "$host" "$port" "$net" "$tcp_port" "$udp_port" "$sni" "${morph:-$morph_default}"; then
                             pin="$FETCHED_PIN"
                             log_success "$(t info_pin_fetched "$pin")"
                         else
@@ -3312,7 +4211,7 @@ configure_nowhere() {
             fi
 
             if is_v2_profile; then
-                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
                 [[ -n "$morph_input" ]] && morph="$morph_input"
             else
                 read -rp "$(t prompt_alpn "$alpn")" alpn_input
@@ -3363,7 +4262,7 @@ configure_nowhere() {
             [[ -n "$tls_input" ]] && tls="$tls_input"
 
             if is_v2_profile; then
-                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
                 [[ -n "$morph_input" ]] && morph="$morph_input"
             else
                 read -rp "$(t prompt_alpn "$alpn")" alpn_input
@@ -3387,6 +4286,7 @@ configure_nowhere() {
             if ! collect_portal_outbound_interactive "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin"; then
                 return 1
             fi
+            outbound="$OUT_OUTBOUND"
             socks="$OUT_SOCKS"
             next="$OUT_NEXT"
             up="$OUT_UP"
@@ -3394,6 +4294,11 @@ configure_nowhere() {
             mux="$OUT_MUX"
             sni="$OUT_SNI"
             pin="$OUT_PIN"
+        fi
+
+        if [[ "$outbound" == "socks" && -z "$socks" ]]; then
+            log_error "$(t err_out_socks_required)"
+            return 1
         fi
 
         local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
@@ -3412,7 +4317,7 @@ configure_nowhere() {
             fi
         fi
 
-        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$outbound") || return 1
     fi
 
     echo -e "\n${CYAN}$(t label_generated_url)${NC}\n${GREEN}${url}${NC}\n"
@@ -3443,11 +4348,25 @@ mf_build_fields() {
     local role="$1"
     MF_LABELS=(); MF_VARS=(); MF_PROMPTS=()
     mf_add_field mf_key key prompt_key
+    if [[ "$role" == "egress" ]]; then
+        mf_add_field mf_host host prompt_portal_host
+        mf_add_field mf_port port prompt_udp_port
+        mf_add_field mf_sni sni prompt_sni
+        mf_add_field mf_pin pin prompt_pin
+        mf_add_field mf_morph morph prompt_morph
+        mf_add_field mf_name name prompt_name
+        return
+    fi
     if [[ "$role" == "vector" ]]; then
         mf_add_field mf_host host prompt_portal_host
     fi
     mf_add_field mf_port port prompt_port
-    mf_add_field mf_net net prompt_net
+    if is_nw3_profile && [[ "$role" == "vector" ]]; then
+        # nw3 Vector endpoints carry exactly one carrier: tcp or udp.
+        mf_add_field mf_carrier net prompt_carrier_single
+    else
+        mf_add_field mf_net net prompt_net
+    fi
     if is_v2_profile; then
         mf_add_field mf_tcp_port tcp_port prompt_tcp_port
         mf_add_field mf_udp_port udp_port prompt_udp_port
@@ -3459,40 +4378,54 @@ mf_build_fields() {
             mf_add_field mf_keyfile keyfile prompt_keyfile
         fi
     fi
-    if is_v2_profile; then
+    if is_v2_profile || is_nw3_profile; then
         mf_add_field mf_morph morph prompt_morph
     else
         mf_add_field mf_alpn alpn prompt_alpn
     fi
     if [[ "$role" == "vector" ]]; then
-        mf_add_field mf_up up prompt_up
-        mf_add_field mf_down down prompt_down
-        if mux_applies "$up" "$down"; then
-            mf_add_field mf_mux mux prompt_mux
+        if is_nw3_profile; then
+            # nw3 Vector: single carrier, in= replaces up/down/mux.
+            mf_add_field mf_in socks prompt_socks_in
+        else
+            mf_add_field mf_up up prompt_up
+            mf_add_field mf_down down prompt_down
+            if mux_applies "$up" "$down"; then
+                mf_add_field mf_mux mux prompt_mux
+            fi
+            mf_add_field mf_socks socks prompt_socks_in
         fi
-        mf_add_field mf_socks socks prompt_socks_in
         mf_add_field mf_sni sni prompt_sni
         mf_add_field mf_pin pin prompt_pin
         mf_add_field mf_name name prompt_name
     else
         mf_add_field mf_share_host host prompt_host
         mf_add_field mf_name name prompt_name
-        mf_add_field mf_outbound outbound prompt_outbound_mode
-        case "$(portal_outbound_mode "$socks" "$next")" in
-            socks)
-                mf_add_field mf_socks socks prompt_socks_out
-                ;;
-            next)
-                mf_add_field mf_next next prompt_next
-                mf_add_field mf_up up prompt_up
-                mf_add_field mf_down down prompt_down
-                if mux_applies "$up" "$down"; then
-                    mf_add_field mf_mux mux prompt_mux
-                fi
-                mf_add_field mf_sni sni prompt_sni
-                mf_add_field mf_pin pin prompt_pin
-                ;;
-        esac
+        if is_nw3_profile; then
+            # nw3 Portal exit is a first-class choice: direct, a SOCKS5 upstream
+            # or a registered Egress. It is stored, not derived from socks/next.
+            mf_add_field mf_outbound outbound prompt_outbound_mode_nw3
+            if [[ "${outbound:-direct}" == "socks" ]]; then
+                mf_add_field mf_out_socks socks prompt_socks_out
+            fi
+        else
+            mf_add_field mf_outbound outbound prompt_outbound_mode
+            case "$(portal_outbound_mode "$socks" "$next")" in
+                socks)
+                    mf_add_field mf_socks socks prompt_socks_out
+                    ;;
+                next)
+                    mf_add_field mf_next next prompt_next
+                    mf_add_field mf_up up prompt_up
+                    mf_add_field mf_down down prompt_down
+                    if mux_applies "$up" "$down"; then
+                        mf_add_field mf_mux mux prompt_mux
+                    fi
+                    mf_add_field mf_sni sni prompt_sni
+                    mf_add_field mf_pin pin prompt_pin
+                    ;;
+            esac
+        fi
     fi
 }
 
@@ -3500,7 +4433,11 @@ mf_build_fields() {
 mf_display_value() {
     local vname="$1"
     if [[ "$vname" == "outbound" ]]; then
-        portal_outbound_mode "$socks" "$next"
+        if is_nw3_profile; then
+            printf '%s' "${outbound:-direct}"
+        else
+            portal_outbound_mode "$socks" "$next"
+        fi
         return
     fi
     local val="${!vname}"
@@ -3521,6 +4458,25 @@ mf_edit_field() {
     fi
     case "$vname" in
         outbound)
+            if is_nw3_profile; then
+                # nw3 Portal exit: direct / SOCKS5 upstream / Egress, stored in out=.
+                local nw3_mode="${outbound:-direct}"
+                read -rp "$(t prompt_outbound_mode_nw3 "$nw3_mode")" input
+                input="${input:-$nw3_mode}"
+                case "$input" in
+                    direct|socks|egress)
+                        outbound="$input"
+                        ;;
+                    *)
+                        log_error "$(t err_invalid_out "$input")"
+                        return 1
+                        ;;
+                esac
+                if [[ "$outbound" != "socks" ]]; then
+                    socks=""
+                fi
+                return 0
+            fi
             local mode
             mode=$(portal_outbound_mode "$socks" "$next")
             read -rp "$(t prompt_outbound_mode "$mode")" input
@@ -3570,6 +4526,15 @@ mf_edit_field() {
         net)
             read -rp "$(t "$prompt_key" "$current")" input
             [[ -z "$input" ]] && return 0
+            if is_nw3_profile && [[ "$role" == "vector" ]]; then
+                # nw3 Vector endpoints carry exactly one carrier.
+                if [[ "$input" != "tcp" && "$input" != "udp" ]]; then
+                    log_error "$(t err_invalid_carrier "$input")"
+                    return 1
+                fi
+                net="$input"
+                return 0
+            fi
             validate_net_value "$input" || return 1
             net="$input"
             if is_v2_profile; then
@@ -3592,7 +4557,7 @@ mf_edit_field() {
             esac
             ;;
         morph)
-            read -rp "$(t "$prompt_key" "${current:-0}")" input
+            read -rp "$(t "$prompt_key" "${current:-$morph_default}")" input
             [[ -z "$input" ]] && return 0
             validate_morph_value "$input" || return 1
             morph="$input"
@@ -3688,10 +4653,12 @@ modify_configuration() {
 
     parse_url_authority "$url"
     local key="$PARSE_KEY" port="${PARSE_PORT:-2077}" host=""
-    local net="mix" tls="1" alpn="" socks="" next=""
+    local net="mix" tls="1" alpn="" socks="" next="" outbound="direct"
     local up="$dc" down="$dc" mux="0" sni="" pin="" morph=""
     local tcp_port="" udp_port=""
     local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+    local morph_default="0"
+    is_nw3_profile && morph_default="1"
     if url_has_carrier_path "$url"; then
         tcp_port="$PARSE_TCP_PORT"
         udp_port="$PARSE_UDP_PORT"
@@ -3699,27 +4666,55 @@ modify_configuration() {
     fi
     if [[ "$role" == "vector" ]]; then
         host="$PARSE_HOST"
-        up=$(get_query_param "$url" "up"); up="${up:-$dc}"
-        down=$(get_query_param "$url" "down"); down="${down:-$dc}"
-        mux=$(get_query_param "$url" "mux"); mux="${mux:-0}"
         sni=$(get_query_param "$url" "sni")
         pin=$(get_query_param "$url" "pin")
         morph=$(get_query_param "$url" "morph")
-        socks=$(url_decode_simple "$(get_query_param "$url" "socks")")
+        if is_nw3_profile; then
+            # nw3 Vector: one carrier, in= replaces up/down/mux/socks=.
+            socks=$(url_decode_simple "$(get_query_param "$url" "in")")
+            if [[ "$net" != "tcp" && "$net" != "udp" ]]; then
+                net="tcp"
+            fi
+            port="${PARSE_TCP_PORT:-${PARSE_UDP_PORT:-$port}}"
+            tcp_port=""
+            udp_port=""
+        else
+            up=$(get_query_param "$url" "up"); up="${up:-$dc}"
+            down=$(get_query_param "$url" "down"); down="${down:-$dc}"
+            mux=$(get_query_param "$url" "mux"); mux="${mux:-0}"
+            socks=$(url_decode_simple "$(get_query_param "$url" "socks")")
+        fi
+    elif [[ "$role" == "egress" ]]; then
+        host="$PARSE_HOST"
+        port="${PARSE_UDP_PORT:-$PARSE_PORT}"
+        sni=$(get_query_param "$url" "sni")
+        pin=$(get_query_param "$url" "pin")
+        morph=$(get_query_param "$url" "morph")
     else
         local existing_net
         existing_net=$(get_query_param "$url" "net")
         [[ -n "$existing_net" ]] && net="$existing_net"
         tls=$(get_query_param "$url" "tls"); tls="${tls:-1}"
-        load_portal_outbound_from_url "$url"
-        socks="$PORTAL_SOCKS"
-        next="$PORTAL_NEXT"
-        up="$PORTAL_UP"
-        down="$PORTAL_DOWN"
-        mux="$PORTAL_MUX"
-        sni="$PORTAL_SNI"
-        pin="$PORTAL_PIN"
-        morph="$PORTAL_MORPH"
+        if is_nw3_profile; then
+            # nw3 Portal exit is stored in out=; socks=/next= no longer exist.
+            local raw_out
+            raw_out=$(url_decode_simple "$(get_query_param "$url" "out")")
+            case "$raw_out" in
+                egress) outbound="egress" ;;
+                direct|"") outbound="direct" ;;
+                *) outbound="socks"; socks="$raw_out" ;;
+            esac
+        else
+            load_portal_outbound_from_url "$url"
+            socks="$PORTAL_SOCKS"
+            next="$PORTAL_NEXT"
+            up="$PORTAL_UP"
+            down="$PORTAL_DOWN"
+            mux="$PORTAL_MUX"
+            sni="$PORTAL_SNI"
+            pin="$PORTAL_PIN"
+        fi
+        morph=$(get_query_param "$url" "morph")
         crt=$(get_query_param "$url" "crt"); crt="${crt:-/etc/nowhere/cert.pem}"
         keyfile=$(get_query_param "$url" "key"); keyfile="${keyfile:-/etc/nowhere/key.pem}"
     fi
@@ -3732,7 +4727,7 @@ modify_configuration() {
 
     # Keep parameters this editor does not manage (rate/etar/dial/log, future keys).
     local leftover="$url" p
-    for p in tls crt key net alpn socks next up down mux sni pin morph; do
+    for p in tls crt key net alpn socks next up down mux sni pin morph out in; do
         leftover=$(strip_query_param "$leftover" "$p")
     done
     if [[ "$leftover" == *\?* ]]; then
@@ -3777,8 +4772,18 @@ modify_configuration() {
         fi
         socks="${socks:-$DEFAULT_SOCKS_IN}"
         new_url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
+    elif [[ "$role" == "egress" ]]; then
+        if [[ -z "$host" ]]; then
+            log_error "$(t err_portal_host_required)"
+            return 1
+        fi
+        new_url=$(build_egress_url "$key" "$host" "$port" "$sni" "$pin" "$morph") || return 1
     else
-        new_url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
+        if is_nw3_profile && [[ "$outbound" == "socks" && -z "$socks" ]]; then
+            log_error "$(t err_out_socks_required)"
+            return 1
+        fi
+        new_url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$outbound") || return 1
     fi
     if [[ -n "$leftover" ]]; then
         if [[ "$new_url" == *\?* ]]; then
@@ -3799,8 +4804,10 @@ upgrade_nowhere() {
 
     echo -e "${CYAN}$(t label_current_ver "${installed_version:-$(t not_installed)}")${NC}"
 
-    if [[ -n "$ARG_VERSION" ]]; then
-        latest_version="$ARG_VERSION"
+    local resolved
+    resolved=$(resolve_upgrade_target)
+    if [[ -n "$resolved" ]]; then
+        latest_version="$resolved"
         echo -e "${CYAN}$(t label_target_ver "${latest_version#v}")${NC}"
         if [[ -n "$installed_version" && "$installed_version" == "${latest_version#v}" ]]; then
             log_info "$(t info_already_target "${latest_version#v}")"
@@ -3826,11 +4833,38 @@ upgrade_nowhere() {
         old_major=$(version_major "$installed_version")
         new_major=$(version_major "$latest_version")
         if [[ -n "$old_major" && -n "$new_major" && "$old_major" != "$new_major" ]]; then
-            log_warn "$(t warn_v20_incompat)"
-            if [[ "$AUTO_MODE" != "upgrade" && "$AUTO_MODE" != "install" ]]; then
-                local confirm=""
-                read -rp "$(t prompt_v20_upgrade)" confirm
-                [[ "$confirm" =~ ^[Yy]$ ]] || { log_info "$(t info_cancelled)"; return; }
+            if [[ "$old_major" == "1" && "$new_major" == "2" ]]; then
+                # Legacy 1.x -> 2.x notice keeps its own lighter confirmation.
+                log_warn "$(t warn_v20_incompat)"
+                if [[ "$AUTO_MODE" != "upgrade" && "$AUTO_MODE" != "install" ]]; then
+                    local confirm=""
+                    read -rp "$(t prompt_v20_upgrade)" confirm
+                    [[ "$confirm" =~ ^[Yy]$ ]] || { log_info "$(t info_cancelled)"; return; }
+                fi
+            else
+                # nw2 <-> nw3 wire cutover: preflight first, then explicit
+                # consent. An explicit --version does not bypass the gate.
+                if ! preflight_profile_switch "$old_major" "$new_major"; then
+                    return 1
+                fi
+                log_warn "$(t warn_protocol_switch "$old_major" "$new_major")"
+                if [[ -n "$ARG_ALLOW_BREAKING" ]]; then
+                    log_info "$(t info_migrate_flag_accepted)"
+                elif [[ -t 0 && "$AUTO_MODE" != "upgrade" && "$AUTO_MODE" != "install" ]]; then
+                    local migrate_confirm=""
+                    read -rp "$(t prompt_migrate_confirm)" migrate_confirm
+                    [[ "$migrate_confirm" == "MIGRATE" ]] || { log_info "$(t info_cancelled)"; return; }
+                else
+                    log_error "$(t err_migrate_requires_flag)"
+                    return 1
+                fi
+                if [[ -f "$URL_FILE" ]]; then
+                    local url_backup
+                    url_backup="${URL_FILE}.nw${old_major}.bak.$(date +%Y%m%d_%H%M%S)"
+                    if cp "$URL_FILE" "$url_backup"; then
+                        log_info "$(t warn_url_backed_up "$url_backup")"
+                    fi
+                fi
             fi
         fi
         # Nowhere 2.2+ enforces hex Portal keys and mandatory certificate
@@ -3872,7 +4906,7 @@ auto_install_nowhere() {
 
     install_nowhere
 
-    # Import nowhere:// / vector:// / portal:// via --url and finish.
+    # Import nowhere:// / vector:// / portal:// / egress:// via --url and finish.
     if [[ -n "$ARG_URL" ]]; then
         log_info "$(t info_gen_config)"
         mkdir -p "$CONFIG_DIR"
@@ -3881,25 +4915,36 @@ auto_install_nowhere() {
             return 1
         fi
         local ROLE="$IMPORTED_ROLE"
+        if [[ "$ROLE" == "egress" ]] && ! is_nw3_profile; then
+            log_error "$(t err_egress_requires_nw3)"
+            return 1
+        fi
         local url="$IMPORTED_URL" host="" name
         name=$(load_node_name)
         parse_url_authority "$url"
-        if [[ "$ROLE" == "vector" ]]; then
+        if [[ "$ROLE" == "egress" ]]; then
+            host="${ARG_HOST:-$PARSE_HOST}"
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_UDP_PORT$ARG_SNI$ARG_PIN$ARG_MORPH" ]]; then
+                local ekey eport esni epin emorph
+                ekey="${ARG_KEY:-$PARSE_KEY}"
+                eport="${ARG_UDP_PORT:-${PARSE_UDP_PORT:-$PARSE_PORT}}"
+                esni="${ARG_SNI:-$(get_query_param "$url" "sni")}"
+                epin="${ARG_PIN:-$(get_query_param "$url" "pin")}"
+                emorph="${ARG_MORPH:-$(get_query_param "$url" "morph")}"
+                url=$(build_egress_url "$ekey" "$host" "$eport" "$esni" "$epin" "$emorph") || return 1
+            fi
+        elif [[ "$ROLE" == "vector" ]]; then
             host="$PARSE_HOST"
             [[ -n "$ARG_HOST" ]] && host="$ARG_HOST"
             # Rebuild if CLI overrides present.
-            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_NET" ]]; then
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_NET$ARG_OUT" ]]; then
                 local dc key port socks up down mux sni pin alpn morph tcp_port udp_port net ia
                 dc=$(default_carrier)
                 key="${ARG_KEY:-$PARSE_KEY}"
                 port="${ARG_PORT:-$PARSE_PORT}"
-                socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$url" "socks")")}"
+                socks="${ARG_SOCKS:-$(url_decode_simple "$(get_query_param "$url" "in")")}"
+                socks="${socks:-$(url_decode_simple "$(get_query_param "$url" "socks")")}"
                 socks="${socks:-$DEFAULT_SOCKS_IN}"
-                up="${ARG_UP:-$(get_query_param "$url" "up")}"
-                up="${up:-$dc}"
-                down="${ARG_DOWN:-$(get_query_param "$url" "down")}"
-                down="${down:-$dc}"
-                mux="${ARG_MUX:-$(get_query_param "$url" "mux")}"
                 sni="${ARG_SNI:-$(get_query_param "$url" "sni")}"
                 pin="${ARG_PIN:-$(get_query_param "$url" "pin")}"
                 morph="${ARG_MORPH:-$(get_query_param "$url" "morph")}"
@@ -3908,35 +4953,46 @@ auto_install_nowhere() {
                 [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
                 [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
                 host="${ARG_HOST:-$PARSE_HOST}"
-                if url_has_carrier_path "$url"; then
-                    tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
-                    udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
-                    net="${ARG_NET:-${PARSE_CARRIERS:-mix}}"
+                if is_nw3_profile; then
+                    if [[ "$url" == */udp:* ]]; then
+                        net="${ARG_NET:-udp}"
+                    else
+                        net="${ARG_NET:-tcp}"
+                    fi
+                    if [[ "$net" == "udp" ]]; then
+                        udp_port="${ARG_UDP_PORT:-${PARSE_UDP_PORT:-$PARSE_PORT}}"
+                        tcp_port=""
+                    else
+                        tcp_port="${ARG_TCP_PORT:-${PARSE_TCP_PORT:-$PARSE_PORT}}"
+                        udp_port=""
+                    fi
+                    up=""; down=""; mux=""
                 else
-                    tcp_port="${ARG_TCP_PORT:-}"
-                    udp_port="${ARG_UDP_PORT:-}"
-                    net="${ARG_NET:-mix}"
+                    up="${ARG_UP:-$(get_query_param "$url" "up")}"
+                    up="${up:-$dc}"
+                    down="${ARG_DOWN:-$(get_query_param "$url" "down")}"
+                    down="${down:-$dc}"
+                    mux="${ARG_MUX:-$(get_query_param "$url" "mux")}"
+                    if url_has_carrier_path "$url"; then
+                        tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
+                        udp_port="${ARG_UDP_PORT:-$PARSE_UDP_PORT}"
+                        net="${ARG_NET:-${PARSE_CARRIERS:-mix}}"
+                    else
+                        tcp_port="${ARG_TCP_PORT:-}"
+                        udp_port="${ARG_UDP_PORT:-}"
+                        net="${ARG_NET:-mix}"
+                    fi
                 fi
                 url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
             fi
         else
             host="${ARG_HOST:-}"
-            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT" ]]; then
-                load_portal_outbound_from_url "$url"
+            if [[ -n "$ARG_KEY$ARG_HOST$ARG_PORT$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_OUT" ]]; then
                 local key="${ARG_KEY:-$PARSE_KEY}"
                 local port="${ARG_PORT:-$PARSE_PORT}"
-                local net="${ARG_NET:-$(get_query_param "$url" "net")}"
-                net="${net:-${PARSE_CARRIERS:-mix}}"
                 local tls="${ARG_TLS:-$(get_query_param "$url" "tls")}"
                 tls="${tls:-1}"
-                local socks="${ARG_SOCKS:-$PORTAL_SOCKS}"
-                local next="${ARG_NEXT:-$PORTAL_NEXT}"
-                local up="${ARG_UP:-$PORTAL_UP}"
-                local down="${ARG_DOWN:-$PORTAL_DOWN}"
-                local mux="${ARG_MUX:-$PORTAL_MUX}"
-                local sni="${ARG_SNI:-$PORTAL_SNI}"
-                local pin="${ARG_PIN:-$PORTAL_PIN}"
-                local morph="${ARG_MORPH:-$PORTAL_MORPH}"
+                local morph="${ARG_MORPH:-$(get_query_param "$url" "morph")}"
                 local tcp_port udp_port
                 if url_has_carrier_path "$url"; then
                     tcp_port="${ARG_TCP_PORT:-$PARSE_TCP_PORT}"
@@ -3957,7 +5013,48 @@ auto_install_nowhere() {
                     keyfile="${ARG_KEYFILE:-$(get_query_param "$url" "key")}"
                     keyfile="${keyfile:-/etc/nowhere/key.pem}"
                 fi
-                url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
+                local socks next up down mux sni pin net outbound
+                if is_nw3_profile; then
+                    # nw3 Portal exit replaces socks=/next= with out=.
+                    local imported_out
+                    imported_out=$(get_query_param "$url" "out")
+                    if [[ -n "$ARG_OUT" ]]; then
+                        outbound="$ARG_OUT"
+                    else
+                        case "$imported_out" in
+                            egress) outbound="egress" ;;
+                            direct|"") outbound="direct" ;;
+                            *) outbound="socks" ;;
+                        esac
+                    fi
+                    if [[ "$outbound" == "socks" ]]; then
+                        socks="${ARG_SOCKS:-}"
+                        if [[ -z "$socks" && -n "$imported_out" \
+                              && "$imported_out" != "direct" && "$imported_out" != "egress" ]]; then
+                            socks="$imported_out"
+                        fi
+                        if [[ -z "$socks" ]]; then
+                            log_error "$(t err_out_socks_required)"
+                            return 1
+                        fi
+                    else
+                        socks=""
+                    fi
+                    next=""; up=""; down=""; mux=""; sni=""; pin=""; net="${ARG_NET:-mix}"
+                else
+                    load_portal_outbound_from_url "$url"
+                    net="${ARG_NET:-$(get_query_param "$url" "net")}"
+                    net="${net:-${PARSE_CARRIERS:-mix}}"
+                    socks="${ARG_SOCKS:-$PORTAL_SOCKS}"
+                    next="${ARG_NEXT:-$PORTAL_NEXT}"
+                    up="${ARG_UP:-$PORTAL_UP}"
+                    down="${ARG_DOWN:-$PORTAL_DOWN}"
+                    mux="${ARG_MUX:-$PORTAL_MUX}"
+                    sni="${ARG_SNI:-$PORTAL_SNI}"
+                    pin="${ARG_PIN:-$PORTAL_PIN}"
+                    outbound=""
+                fi
+                url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$outbound") || return 1
             fi
         fi
         echo "$url" > "$URL_FILE"
@@ -3972,17 +5069,21 @@ auto_install_nowhere() {
 
     local ROLE="${ARG_TYPE:-portal}"
     case "$ROLE" in
-        portal|vector) ;;
+        portal|vector|egress) ;;
         *)
             log_error "$(t err_invalid_type "$ROLE")"
             return 1
             ;;
     esac
+    if [[ "$ROLE" == "egress" ]] && ! is_nw3_profile; then
+        log_error "$(t err_egress_requires_nw3)"
+        return 1
+    fi
 
     log_info "$(t info_gen_config)"
     mkdir -p "$CONFIG_DIR"
 
-    local dc key port alpn net tls host name url socks next up down mux sni pin morph tcp_port udp_port
+    local dc key port alpn net tls host name url socks next up down mux sni pin morph tcp_port udp_port outbound
     dc=$(default_carrier)
     port=${ARG_PORT:-2077}
     alpn=${ARG_ALPN:-$DEFAULT_ALPN}
@@ -4000,6 +5101,13 @@ auto_install_nowhere() {
     morph=${ARG_MORPH:-}
     tcp_port=${ARG_TCP_PORT:-}
     udp_port=${ARG_UDP_PORT:-}
+    outbound=${ARG_OUT:-direct}
+    local morph_default="0"
+    is_nw3_profile && morph_default="1"
+    # On nw3, --socks is the compatibility alias for out=<SOCKS5 upstream>.
+    if is_nw3_profile && [[ -z "$ARG_OUT" && -n "$ARG_SOCKS" ]]; then
+        outbound="socks"
+    fi
 
     if [[ -n "$ARG_KEY" ]]; then
         key="$ARG_KEY"
@@ -4018,43 +5126,76 @@ auto_install_nowhere() {
             read -rp "$(t prompt_portal_host "$host")" host_input
             [[ -n "$host_input" ]] && host="$host_input"
 
-            local prev_port=""
-            [[ -n "$existing_url" ]] && prev_port="$port"
-            port=$(read_port_checked prompt_port "$port" "$prev_port")
-
-            if is_v2_profile; then
-                read -rp "$(t prompt_net "$net")" net_input
-                [[ -n "$net_input" ]] && net="$net_input"
-                prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
-                tcp_port="$OUT_TCP_PORT"
-                udp_port="$OUT_UDP_PORT"
-            fi
-
-            read -rp "$(t prompt_up "$up")" up_input
-            [[ -n "$up_input" ]] && up="$up_input"
-
-            read -rp "$(t prompt_down "$down")" down_input
-            [[ -n "$down_input" ]] && down="$down_input"
-
-            if mux_applies "$up" "$down"; then
-                read -rp "$(t prompt_mux "${mux:-0}")" mux_input
-                [[ -n "$mux_input" ]] && mux="$mux_input"
+            if is_nw3_profile; then
+                local carrier_input=""
+                read -rp "$(t prompt_carrier_single "${net:-tcp}")" carrier_input
+                carrier_input="${carrier_input:-${net:-tcp}}"
+                if [[ "$carrier_input" != "tcp" && "$carrier_input" != "udp" ]]; then
+                    log_error "$(t err_invalid_carrier "$carrier_input")"
+                    return 1
+                fi
+                net="$carrier_input"
+                local prev_port=""
+                [[ -n "$existing_url" ]] && prev_port="$port"
+                if [[ "$net" == "tcp" ]]; then
+                    port=$(read_port_checked prompt_port "$port" "$prev_port")
+                    tcp_port="$port"
+                    udp_port=""
+                else
+                    port=$(read_port_checked prompt_udp_port "$port" "$prev_port")
+                    udp_port="$port"
+                    tcp_port=""
+                fi
             else
-                mux=""
+                local prev_port=""
+                [[ -n "$existing_url" ]] && prev_port="$port"
+                port=$(read_port_checked prompt_port "$port" "$prev_port")
+
+                if is_v2_profile; then
+                    read -rp "$(t prompt_net "$net")" net_input
+                    [[ -n "$net_input" ]] && net="$net_input"
+                    prompt_v2_carrier_ports "$net" "$port" "$tcp_port" "$udp_port"
+                    tcp_port="$OUT_TCP_PORT"
+                    udp_port="$OUT_UDP_PORT"
+                fi
             fi
 
-            read -rp "$(t prompt_socks_in "$socks")" socks_input
-            [[ -n "$socks_input" ]] && socks="$socks_input"
+            if is_nw3_profile; then
+                read -rp "$(t prompt_socks_in "$socks")" socks_input
+                [[ -n "$socks_input" ]] && socks="$socks_input"
 
-            read -rp "$(t prompt_sni "$sni")" sni_input
-            [[ -n "$sni_input" ]] && sni="$sni_input"
+                read -rp "$(t prompt_sni "$sni")" sni_input
+                [[ -n "$sni_input" ]] && sni="$sni_input"
 
-            if is_v2_profile; then
-                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+                read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
                 [[ -n "$morph_input" ]] && morph="$morph_input"
             else
-                read -rp "$(t prompt_alpn "$alpn")" alpn_input
-                [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+                read -rp "$(t prompt_up "$up")" up_input
+                [[ -n "$up_input" ]] && up="$up_input"
+
+                read -rp "$(t prompt_down "$down")" down_input
+                [[ -n "$down_input" ]] && down="$down_input"
+
+                if mux_applies "$up" "$down"; then
+                    read -rp "$(t prompt_mux "${mux:-0}")" mux_input
+                    [[ -n "$mux_input" ]] && mux="$mux_input"
+                else
+                    mux=""
+                fi
+
+                read -rp "$(t prompt_socks_in "$socks")" socks_input
+                [[ -n "$socks_input" ]] && socks="$socks_input"
+
+                read -rp "$(t prompt_sni "$sni")" sni_input
+                [[ -n "$sni_input" ]] && sni="$sni_input"
+
+                if is_v2_profile; then
+                    read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
+                    [[ -n "$morph_input" ]] && morph="$morph_input"
+                else
+                    read -rp "$(t prompt_alpn "$alpn")" alpn_input
+                    [[ -n "$alpn_input" ]] && alpn="$alpn_input"
+                fi
             fi
 
             read -rp "$(t prompt_name "$name")" name_input
@@ -4069,6 +5210,54 @@ auto_install_nowhere() {
             return 1
         fi
         url=$(build_vector_url "$key" "$host" "$port" "$up" "$down" "$socks" "$alpn" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$net") || return 1
+    elif [[ "$ROLE" == "egress" ]]; then
+        if [[ -t 0 && -z "$ARG_KEY" ]]; then
+            echo -e "${CYAN}$(t info_configure_egress)${NC}"
+            echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
+            echo -e "${CYAN}$(t info_key_hint)${NC}"
+            read_key_checked "egress" "$key" || return 1
+            key="$ENTERED_KEY"
+
+            read -rp "$(t prompt_portal_host "$host")" host_input
+            [[ -n "$host_input" ]] && host="$host_input"
+            if [[ -z "$host" ]]; then
+                log_error "$(t err_portal_host_required)"
+                return 1
+            fi
+
+            local prev_port=""
+            [[ -n "$existing_url" ]] && prev_port="$port"
+            port=$(read_port_checked prompt_udp_port "$port" "$prev_port")
+            udp_port="$port"
+
+            read -rp "$(t prompt_sni "$sni")" sni_input
+            [[ -n "$sni_input" ]] && sni="$sni_input"
+
+            read -rp "$(t prompt_pin "$pin")" pin_input
+            if [[ "$pin_input" == "-" ]]; then
+                pin=""
+            elif [[ -n "$pin_input" ]]; then
+                pin="$pin_input"
+            fi
+            if [[ -z "$pin" ]]; then
+                log_warn "$(t warn_pin_required)"
+            fi
+
+            read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
+            [[ -n "$morph_input" ]] && morph="$morph_input"
+
+            read -rp "$(t prompt_name "$name")" name_input
+            if [[ "$name_input" == "-" ]]; then
+                name=""
+            elif [[ -n "$name_input" ]]; then
+                name="$name_input"
+            fi
+        fi
+        if [[ -z "$host" ]]; then
+            log_error "$(t err_portal_host_required)"
+            return 1
+        fi
+        url=$(build_egress_url "$key" "$host" "${udp_port:-$port}" "$sni" "$pin" "$morph") || return 1
     else
         if [[ -t 0 && -z "$ARG_KEY" ]]; then
             echo -e "${CYAN}$(t info_random_key "${GREEN}${key}${NC}${CYAN}")${NC}"
@@ -4092,8 +5281,8 @@ auto_install_nowhere() {
             read -rp "$(t prompt_tls "$tls")" tls_input
             [[ -n "$tls_input" ]] && tls="$tls_input"
 
-            if is_v2_profile; then
-                read -rp "$(t prompt_morph "${morph:-0}")" morph_input
+            if is_v2_profile || is_nw3_profile; then
+                read -rp "$(t prompt_morph "${morph:-$morph_default}")" morph_input
                 [[ -n "$morph_input" ]] && morph="$morph_input"
             else
                 read -rp "$(t prompt_alpn "$alpn")" alpn_input
@@ -4124,8 +5313,13 @@ auto_install_nowhere() {
             mux="$OUT_MUX"
             sni="$OUT_SNI"
             pin="$OUT_PIN"
+            outbound="$OUT_OUTBOUND"
         elif [[ -n "$ARG_NEXT" ]]; then
             next="$ARG_NEXT"
+        fi
+        if is_nw3_profile && [[ "$outbound" == "socks" && -z "$socks" ]]; then
+            log_error "$(t err_out_socks_required)"
+            return 1
         fi
 
         local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
@@ -4140,7 +5334,7 @@ auto_install_nowhere() {
             fi
         fi
 
-        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port") || return 1
+        url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$outbound") || return 1
     fi
 
     echo "$url" > "$URL_FILE"
@@ -4154,6 +5348,106 @@ auto_install_nowhere() {
 }
 
 # ==================== Share URI ====================
+# nw3 share output: a Portal endpoint binds * with one or two carriers, so each
+# carrier gets its own anywhere:// import link (net=tcp / net=udp) and the QR
+# encodes the TCP link when one exists. Self-signed Portals (tls=1) still need
+# pin=, fetched from the running service exactly like the v2 path.
+show_share_uri_nw3() {
+    local server_url="$1"
+    local key morph_mode tls_mode tcp_port udp_port
+    parse_url_authority "$server_url"
+    key="$PARSE_KEY"
+    morph_mode=$(get_query_param "$server_url" "morph")
+    tls_mode=$(get_query_param "$server_url" "tls")
+    tls_mode=${tls_mode:-1}
+    if url_has_carrier_path "$server_url"; then
+        tcp_port="$PARSE_TCP_PORT"
+        udp_port="$PARSE_UDP_PORT"
+    else
+        tcp_port="${PARSE_PORT:-2077}"
+        udp_port="$tcp_port"
+    fi
+
+    local share_host
+    share_host=$(load_share_host)
+    [[ -z "$share_host" ]] && share_host=$(get_public_ip)
+    [[ -z "$share_host" ]] && share_host="127.0.0.1"
+
+    local node_name frag=""
+    node_name=$(load_node_name)
+    [[ -n "$node_name" ]] && frag="#$(url_encode_name "$node_name")"
+
+    local sni_param=""
+    if [[ "$tls_mode" == "2" ]]; then
+        local stored_host
+        stored_host=$(load_share_host)
+        if [[ -n "$stored_host" ]]; then
+            sni_param="&sni=${stored_host}"
+        else
+            log_warn "$(t warn_sni_missing)"
+        fi
+    fi
+
+    local fingerprint=""
+    if [[ "$tls_mode" == "1" && -n "$tcp_port" ]]; then
+        local probe_url="nowhere://${key}@127.0.0.1:${tcp_port}?net=tcp"
+        [[ -n "$morph_mode" ]] && probe_url="${probe_url}&morph=${morph_mode}"
+        fingerprint=$(get_portal_fingerprint "$probe_url")
+    fi
+
+    local tcp_link="" udp_link="" qr_link="" link
+    if [[ -n "$tcp_port" ]]; then
+        link="nowhere://${key}@${share_host}:${tcp_port}?net=tcp"
+        [[ -n "$morph_mode" ]] && link="${link}&morph=${morph_mode}"
+        link="${link}${sni_param}"
+        [[ -n "$fingerprint" ]] && link="${link}&pin=${fingerprint}"
+        tcp_link="${link}${frag}"
+        qr_link="$tcp_link"
+    fi
+    if [[ -n "$udp_port" ]]; then
+        link="nowhere://${key}@${share_host}:${udp_port}?net=udp"
+        [[ -n "$morph_mode" ]] && link="${link}&morph=${morph_mode}"
+        link="${link}${sni_param}"
+        [[ -n "$fingerprint" ]] && link="${link}&pin=${fingerprint}"
+        udp_link="${link}${frag}"
+        [[ -n "$qr_link" ]] || qr_link="$udp_link"
+    fi
+
+    echo -e "\n${CYAN}$(t share_title)${NC}"
+    if [[ -n "$tcp_link" ]]; then
+        echo -e "${CYAN}$(t label_share_link_tcp)${NC}\n${GREEN}${tcp_link}${NC}\n"
+    fi
+    if [[ -n "$udp_link" ]]; then
+        echo -e "${CYAN}$(t label_share_link_udp)${NC}\n${GREEN}${udp_link}${NC}\n"
+    fi
+    if [[ -n "$fingerprint" ]]; then
+        echo -e "${CYAN}$(t label_fingerprint "${GREEN}${fingerprint}${NC}")${NC}\n"
+    fi
+
+    local qr_tool
+    qr_tool=$(qr_support_available || true)
+    if [[ -n "$qr_link" && "$qr_tool" == "qrencode" ]]; then
+        echo -e "${CYAN}$(t label_qr)${NC}\n"
+        qrencode -t ANSI -m 2 "$qr_link" || true
+        echo ""
+    elif [[ -n "$qr_link" && "$qr_tool" == "python3-qrcode" ]]; then
+        echo -e "${CYAN}$(t label_qr)${NC}\n"
+        python3 -c "import qrcode,sys; qr=qrcode.QRCode(border=2); qr.add_data(sys.argv[1]); qr.make(); qr.print_tty()" "$qr_link" || true
+        echo ""
+    fi
+
+    if [[ "$tls_mode" == "1" ]]; then
+        if [[ -n "$fingerprint" ]]; then
+            log_warn "$(t warn_pin_changes)"
+        else
+            log_warn "$(t warn_pin_required)"
+            log_warn "$(t warn_pin_unavailable)"
+        fi
+    fi
+
+    echo -e "${CYAN}========================================${NC}\n"
+}
+
 show_share_uri() {
     if [[ ! -f "$URL_FILE" ]]; then
         log_warn "$(t warn_no_config)"
@@ -4167,11 +5461,24 @@ show_share_uri() {
 
     local role
     role=$(detect_url_role "$server_url")
+    if [[ "$role" == "egress" ]]; then
+        # nw3 Egress dials out to the Portal; there is no inbound port and no
+        # client-side import link, so only the run URL is shared.
+        echo -e "\n${CYAN}$(t share_title)${NC}"
+        echo -e "${CYAN}$(t label_run_url_status "${GREEN}${server_url}${NC}")${NC}"
+        log_info "$(t info_egress_no_inbound)"
+        echo -e "${CYAN}========================================${NC}\n"
+        return
+    fi
     if [[ "$role" == "vector" ]]; then
         echo -e "\n${CYAN}$(t share_title)${NC}"
         log_warn "$(t warn_share_vector)"
         echo -e "${CYAN}$(t label_run_url_status "${GREEN}${server_url}${NC}")${NC}"
         echo -e "${CYAN}========================================${NC}\n"
+        return
+    fi
+    if is_nw3_profile; then
+        show_share_uri_nw3 "$server_url"
         return
     fi
 
@@ -4368,6 +5675,7 @@ select_language() {
 show_status() {
     migrate_stored_url
     echo -e "\n${CYAN}$(t status_title)${NC}"
+    echo -e "$(t label_script "${GREEN}${SCRIPT_VERSION}${NC}")"
     if command -v nowhere &>/dev/null; then
         echo -e "$(t label_binary "${GREEN}${INSTALL_DIR}/nowhere${NC}")"
         local installed_ver
@@ -4391,11 +5699,24 @@ show_status() {
         echo -e "$(t label_role "${GREEN}${role}${NC}")"
         echo -e "$(t label_config_file "${GREEN}${URL_FILE}${NC}")"
         echo -e "$(t label_run_url_status "${GREEN}${run_url}${NC}")"
-        if [[ -n "$socks_val" ]]; then
-            echo -e "$(t label_socks "${GREEN}$(url_decode_simple "$socks_val")${NC}")"
-        fi
-        if [[ -n "$next_val" ]]; then
-            echo -e "$(t label_next "${GREEN}$(url_decode_simple "$next_val")${NC}")"
+        if is_nw3_profile; then
+            # nw3 Portal exits via out=; nw3 Vector listens via in=.
+            local nw3_out nw3_in
+            nw3_out=$(get_query_param "$run_url" "out")
+            nw3_in=$(url_decode_simple "$(get_query_param "$run_url" "in")")
+            if [[ -n "$nw3_out" ]]; then
+                echo -e "$(t label_out "${GREEN}${nw3_out}${NC}")"
+            fi
+            if [[ -n "$nw3_in" ]]; then
+                echo -e "$(t label_in "${GREEN}${nw3_in}${NC}")"
+            fi
+        else
+            if [[ -n "$socks_val" ]]; then
+                echo -e "$(t label_socks "${GREEN}$(url_decode_simple "$socks_val")${NC}")"
+            fi
+            if [[ -n "$next_val" ]]; then
+                echo -e "$(t label_next "${GREEN}$(url_decode_simple "$next_val")${NC}")"
+            fi
         fi
     else
         echo -e "$(t label_config_file "${YELLOW}$(t not_configured)${NC}")"
@@ -4409,6 +5730,14 @@ launch_tui() {
     if ! command -v nowhere &>/dev/null; then
         log_error "$(t err_binary_missing)"
         return 1
+    fi
+    local inst_major
+    inst_major=$(version_major "$(get_installed_version)")
+    if [[ "$inst_major" == "3" ]]; then
+        # nw3 replaced the TUI with a read-only status snapshot.
+        log_info "$(t info_launching_status)"
+        nowhere status
+        return
     fi
     log_info "$(t info_launching_tui)"
     # TUI is read-only and does not own service lifecycle.
@@ -4426,6 +5755,15 @@ get_running_script_path() {
     local dir
     dir=$(cd -P "$(dirname "$src")" && pwd)
     echo "${dir}/$(basename "$src")"
+}
+
+# Reads a SCRIPT_VERSION="x.y.z" assignment without executing the file.
+read_script_version_file() {
+    local file="$1" ver=""
+    [[ -f "$file" ]] || return 1
+    ver=$(sed -n 's/^SCRIPT_VERSION="\([0-9][0-9.]*\)"$/\1/p' "$file" | head -n1)
+    [[ -n "$ver" ]] || return 1
+    printf '%s' "$ver"
 }
 
 upgrade_oh_nowhere_script() {
@@ -4450,6 +5788,15 @@ upgrade_oh_nowhere_script() {
         rm -f "$tmp_new"
         log_error "$(t err_script_verify)"
         return 1
+    fi
+
+    local remote_ver=""
+    remote_ver=$(read_script_version_file "$tmp_new" || true)
+    if [[ -n "$remote_ver" && "$remote_ver" != "$SCRIPT_VERSION" ]]; then
+        log_info "$(t info_script_versions "$SCRIPT_VERSION" "$remote_ver")"
+        if ! version_ge "$remote_ver" "$SCRIPT_VERSION"; then
+            log_warn "$(t warn_script_older "$remote_ver" "$SCRIPT_VERSION")"
+        fi
     fi
 
     if cmp -s "$script_path" "$tmp_new" 2>/dev/null; then
@@ -4574,6 +5921,7 @@ show_menu() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}$(t menu_title)${NC}"
     echo -e "${GREEN}========================================${NC}"
+    echo -e "$(t menu_script "${CYAN}${SCRIPT_VERSION}${NC}")"
     echo -e "$(t menu_version "${CYAN}${version}${NC}")"
     echo -e "$(t menu_service "$svc_label")"
     echo -e "$(t menu_system "${CYAN}${OS_ID}" "${OS_VERSION_ID}${NC}")"
@@ -4626,7 +5974,7 @@ run_menu() {
 # ==================== Argument parsing ====================
 show_help() {
     cat <<EOF
-$(t help_title)
+$(t help_title)  (oh-nowhere ${SCRIPT_VERSION})
 
 $(t help_usage)
   bash oh-nowhere.sh [options]
@@ -4634,6 +5982,7 @@ $(t help_usage)
 $(t help_options)
 $(t help_opt_install)
 $(t help_opt_upgrade)
+$(t help_opt_allow_breaking)
 $(t help_opt_config)
 $(t help_opt_status)
 $(t help_opt_share)
@@ -4652,6 +6001,7 @@ $(t help_opt_tls)
 $(t help_opt_cert)
 $(t help_opt_keyfile)
 $(t help_opt_socks)
+$(t help_opt_out)
 $(t help_opt_next)
 $(t help_opt_up)
 $(t help_opt_down)
@@ -4662,6 +6012,7 @@ $(t help_opt_morph)
 $(t help_opt_sni)
 $(t help_opt_pin)
 $(t help_opt_version)
+$(t help_opt_script_version)
 $(t help_opt_lang)
 $(t help_opt_help)
 
@@ -4674,6 +6025,9 @@ $(t help_examples)
   bash oh-nowhere.sh --install --type vector --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --host relay.example --up mix --down mix --socks 127.0.0.1:1080
   bash oh-nowhere.sh --install --tcp-port 2006 --udp-port 2017 --morph 1 --key a1b2c3d4e5f60718293a4b5c6d7e8f90
   bash oh-nowhere.sh --install --type portal --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --next '00112233445566778899aabbccddeeff@origin.example:2077' --up udp --down udp
+  bash oh-nowhere.sh --install --type egress --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --host relay.example --udp-port 2077
+  bash oh-nowhere.sh --install --out socks --socks 127.0.0.1:1080 --key a1b2c3d4e5f60718293a4b5c6d7e8f90
+  bash oh-nowhere.sh --upgrade --allow-protocol-breaking-upgrade
   bash oh-nowhere.sh --config --url 'nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example:2077?up=tcp&down=tcp'
   bash oh-nowhere.sh -l en --status
   bash oh-nowhere.sh --tui
@@ -4697,6 +6051,20 @@ parse_args() {
             --uninstall)        AUTO_MODE="uninstall" ;;
             --type)             ARG_TYPE="$2"; shift ;;
             --url)              ARG_URL="$2"; shift ;;
+            --out)
+                ARG_OUT="$2"
+                case "$ARG_OUT" in
+                    direct|socks|egress) ;;
+                    *)
+                        log_error "$(t err_invalid_out "$ARG_OUT")"
+                        exit 1
+                        ;;
+                esac
+                shift
+                ;;
+            --allow-protocol-breaking-upgrade)
+                ARG_ALLOW_BREAKING="1"
+                ;;
             -k|--key)           ARG_KEY="$2"; shift ;;
             -p|--port)          ARG_PORT="$2"; shift ;;
             --alpn)             ARG_ALPN="$2"; shift ;;
@@ -4779,6 +6147,10 @@ parse_args() {
             --cert)             ARG_CERT="$2"; shift ;;
             --keyfile)          ARG_KEYFILE="$2"; shift ;;
             -v|--version)       ARG_VERSION="$2"; shift ;;
+            --script-version)
+                printf '%s\n' "$SCRIPT_VERSION"
+                exit 0
+                ;;
             -l|--lang)
                 ARG_LANG="$2"
                 case "$ARG_LANG" in
