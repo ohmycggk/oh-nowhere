@@ -20,10 +20,49 @@ CONFIG_DIR="/etc/nowhere"
 URL_FILE="${CONFIG_DIR}/url.conf"
 HOST_FILE="${CONFIG_DIR}/host.conf"
 NAME_FILE="${CONFIG_DIR}/name.conf"
+# Certificate pin of an openssl self-signed Portal (tls=2). Absent for tls=1
+# (the binary regenerates the certificate on every start) and for a custom
+# certificate (clients verify through sni= instead).
+PIN_FILE="${CONFIG_DIR}/pin.conf"
+DEFAULT_CERT="${CONFIG_DIR}/cert.pem"
+DEFAULT_KEYFILE="${CONFIG_DIR}/key.pem"
+CERT_MODE_DEFAULT="program"
+SELF_SIGN_DAYS_DEFAULT=398
+SELF_SIGN_KEY_CURVE="prime256v1"
+# acme.sh mode. acme and custom both end up as tls=2 without a pin, so the
+# stored run URL cannot tell them apart: the sidecar below records which one
+# is live (mode=/domain=/autorenew=) and is the only place auto-renew state is
+# kept. ACME_*_FILE/DIR are variables rather than literals so the test suite
+# can re-point them at a sandbox.
+ACME_BIN="${HOME}/.acme.sh/acme.sh"
+ACME_DIR="${CONFIG_DIR}/acme"
+ACME_RELOAD_HOOK="${CONFIG_DIR}/acme-reload.sh"
+ACME_RENEW_HOOK="${CONFIG_DIR}/acme-renew.sh"
+ACME_RENEW_LOG="${CONFIG_DIR}/acme-renew.log"
+CERT_MODE_FILE="${CONFIG_DIR}/certmode.conf"
+ACME_KEY_LENGTH="ec-256"
+ACME_CA_SERVER="letsencrypt"
+# The Portal has no HTTP listener, so the http challenge has to run in acme.sh's
+# own standalone mode: it binds this port itself for the few seconds of
+# validation, which means the port must be free at issue and renewal time.
+ACME_HTTP_PORT="80"
+ACME_CRON_SCHEDULE="17 3 * * *"
+# The job wakes daily but only issues inside this window, the way certbot's
+# timer does. Let's Encrypt certificates live 90 days, so the default renews
+# with two months to spare and leaves the rest of the cycle as a local check.
+ACME_RENEW_DAYS="30"
+ACME_CRON_MARK="# oh-nowhere acme.sh auto-renew"
+ACME_CRON_D_FILE="/etc/cron.d/nowhere-acme"
+# acme.sh account email. Only used when installing acme.sh itself; renewals
+# never need it. Empty is legal (acme.sh registers without an address).
+ACME_EMAIL=""
 PORTAL_LOG="/var/log/nowhere.log"
 LAUNCHER="${INSTALL_DIR}/nowhere-launch.sh"
 RC_SCRIPT="/usr/local/etc/rc.d/nowhere"
 SERVICE_NAME="nowhere"
+# A variable for the same reason as the ACME_* paths above: the test suite has to
+# be able to re-point it, or a sourced install flow would write the real unit.
+SYSTEMD_UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 GITHUB_REPO="NodePassProject/Nowhere"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 SCRIPT_REPO="ohmycggk/oh-nowhere"
@@ -59,6 +98,15 @@ ARG_NET=""
 ARG_TLS=""
 ARG_CERT=""
 ARG_KEYFILE=""
+ARG_CERT_MODE=""
+ARG_SELF_SIGN_DAYS=""
+ARG_CERT_SAN=""
+ARG_ACME_DOMAIN=""
+ARG_ACME_EMAIL=""
+ARG_ACME_CHALLENGE="http"
+ARG_ACME_DNS=""
+ARG_ACME_AUTO_RENEW="yes"
+ARG_ACME_RENEW_DAYS=""
 ARG_LANG=""
 ARG_VERSION=""
 ARG_TYPE=""
@@ -125,6 +173,7 @@ set_language() {
             MSG[info_os]="OS: %s %s, Init: %s"
             MSG[info_arch]="Arch: %s, libc: %s"
             MSG[info_install_deps]="Installing dependencies: %s"
+            MSG[info_install_openssl]="Installing openssl for the self-signed certificate"
             MSG[info_query_version]="Fetching latest version..."
             MSG[info_download]="Downloading nowhere %s (%s)"
             MSG[info_install_to]="Installing to %s"
@@ -148,7 +197,13 @@ set_language() {
             MSG[prompt_morph]="Morph wire mask (0/1) [%s]: "
             MSG[prompt_tcp_port]="TLS/TCP port [%s]: "
             MSG[prompt_udp_port]="QUIC/UDP port [%s]: "
-            MSG[prompt_tls]="TLS mode (1=self-signed, 2=custom cert) [%s]: "
+            MSG[prompt_tls]="TLS mode (set by the certificate choice above) [%s]: "
+            MSG[prompt_cert_mode]="Certificate source (1=program self-signed, 2=openssl self-signed, 3=custom PEM paths, 4=acme.sh) [%s]: "
+            MSG[info_cert_mode_program]="Program self-signed (tls=1): the binary mints the certificate itself, SAN is fixed to localhost, and it is regenerated on every start - the pin changes with it, so redistribute the share URI after each restart."
+            MSG[info_cert_mode_openssl]="openssl self-signed (tls=2): this script writes cert.pem/key.pem with a validity you pick and pins the share URI to it. The pin is stable across restarts."
+            MSG[info_cert_mode_custom]="Custom certificate (tls=2): point crt=/key= at your own PEM files. Clients verify through sni=, so a public hostname is required."
+            MSG[prompt_self_sign_days]="Self-signed validity in days [%s]: "
+            MSG[prompt_cert_san]="Certificate SAN list (comma-separated DNS:/IP:) [%s]: "
             MSG[prompt_cert]="Certificate path [%s]: "
             MSG[prompt_keyfile]="Private key path [%s]: "
             MSG[warn_spec_removed]="spec was removed in Nowhere 1.5; ignoring --spec"
@@ -260,6 +315,49 @@ set_language() {
             MSG[info_pin_fetched]="Certificate pin fetched automatically: %s"
             MSG[label_fingerprint]="Cert pin:   %s"
             MSG[prompt_fetch_pin]="Fetch the Portal certificate fingerprint automatically? [Y/n]: "
+            MSG[err_cert_mode_invalid]="Invalid certificate source %s (expected program, openssl, custom or acme)"
+            MSG[err_not_configured]="Nowhere is not configured yet; run --config or --install first"
+            MSG[err_openssl_missing]="openssl is not available and could not be installed; install it manually or pick another certificate source"
+            MSG[err_self_sign_failed]="Failed to generate the self-signed certificate"
+            MSG[ok_self_signed]="Self-signed certificate written to %s and %s (valid %s days), pin %s"
+            MSG[info_cert_mode_acme]="acme.sh certificate (tls=2): this script drives acme.sh to obtain a real CA-signed certificate for your domain. Clients verify through sni=, so a public hostname and reachable port 80 (or a DNS plugin) are required."
+            MSG[prompt_acme_domain]="Domain to issue the certificate for [%s]: "
+            MSG[prompt_acme_email]="acme.sh account email (optional, for expiry notices): "
+            MSG[prompt_acme_renew_days]="Renew when this many days of validity are left [%s]: "
+            MSG[prompt_acme_challenge]="ACME challenge type (http/dns) [%s]: "
+            MSG[prompt_acme_dns]="acme.sh DNS plugin (e.g. dns_cf, dns_ali; needs its credentials exported first): "
+            MSG[prompt_acme_auto_renew]="Install an auto-renew job for the certificate? (yes/no) [%s]: "
+            MSG[err_acme_domain_invalid]="Invalid ACME domain %s (expected a public hostname like relay.example.com)"
+            MSG[err_acme_dns_missing]="The dns challenge needs a plugin name via --acme-dns"
+            MSG[err_acme_challenge_invalid]="Invalid ACME challenge %s (expected http or dns)"
+            MSG[err_acme_auto_renew_invalid]="Invalid auto-renew value %s (expected yes or no)"
+            MSG[err_acme_port_busy]="Port %s is in use; the http challenge needs it free. Free the port, or use --acme-challenge dns with a --acme-dns plugin"
+            MSG[err_acme_standalone_missing]="socat is required for the http challenge and could not be installed; install socat, or use --acme-challenge dns"
+            MSG[err_acme_install_failed]="Could not install acme.sh into %s; check the network and curl, then retry"
+            MSG[err_acme_issue_failed]="acme.sh failed to issue a certificate for %s; see the acme.sh log for the reason"
+            MSG[err_acme_renew_failed]="acme.sh failed to renew the certificate for %s"
+            MSG[err_acme_not_installed]="acme.sh is not installed at %s"
+            MSG[err_acme_domain_missing]="The recorded ACME domain is missing; re-run the certificate step with --cert-mode acme"
+            MSG[err_acme_renew_days_invalid]="Invalid renewal window: %s (use 1-89 days)"
+            MSG[info_acme_cert_kept]="Certificate for %s is valid until %s, more than %s days out; keeping it"
+            MSG[warn_acme_renew_failed]="Renewal for %s failed; keeping the existing certificate and letting the auto-renew job retry"
+            MSG[warn_acme_cron_unavailable]="No cron daemon found; auto-renew was not scheduled. Renew manually with --renew-cert"
+            MSG[info_acme_cron_installed]="Auto-renew scheduled: %s (renews inside the last %s days of validity)"
+            MSG[info_install_acme]="Installing acme.sh..."
+            MSG[info_install_socat]="Installing socat for the acme.sh standalone challenge..."
+            MSG[ok_acme_cert]="acme.sh certificate for %s ready: %s and %s"
+            MSG[ok_acme_renew]="Certificate for %s renewed (%s)"
+            MSG[info_renew_not_needed]="Nothing to renew in %s mode (the binary mints a new certificate on every start)"
+            MSG[err_renew_not_portal]="--renew-cert only applies to a Portal configuration"
+            MSG[label_acme_domain]="ACME domain: %s"
+            MSG[label_acme_renewal]="ACME renew:  %s"
+            MSG[acme_renewal_on]="on (%s, renews inside the last %s days of validity)"
+            MSG[acme_renewal_off]="off - renew with --renew-cert"
+            MSG[label_cert_mode]="Cert:       %s"
+            MSG[label_cert_expires]="Cert until: %s"
+            MSG[warn_cert_expired]="The Portal certificate has expired (%s); clients will refuse it. Re-issue it from the configuration menu."
+            MSG[warn_cert_expiring]="The Portal certificate expires in %s days (%s)."
+            MSG[warn_cert_file_missing]="The Portal certificate file %s is missing; the Portal cannot start with tls=2 until it exists"
             MSG[status_title]="========== Nowhere Status =========="
             MSG[label_binary]="Binary:     %s"
             MSG[label_script]="Script:     %s"
@@ -284,6 +382,7 @@ set_language() {
             MSG[menu_stop]="Stop service"
             MSG[menu_restart]="Restart service"
             MSG[menu_status]="Show status"
+            MSG[menu_renew]="Renew certificate now"
             MSG[menu_tui]="TUI / instance status"
             MSG[menu_share]="Show share URI"
             MSG[menu_qr]="Install QR code support"
@@ -313,6 +412,7 @@ set_language() {
             MSG[mf_tcp_port]="TCP port"
             MSG[mf_udp_port]="UDP port"
             MSG[mf_tls]="TLS mode"
+            MSG[mf_cert_mode]="Certificate source"
             MSG[mf_cert]="Cert file"
             MSG[mf_keyfile]="Private key file"
             MSG[mf_alpn]="ALPN"
@@ -374,6 +474,16 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        TLS mode (default 1)"
             MSG[help_opt_cert]="      --cert <path>      Cert path when TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <path>   Key path when TLS=2"
+            MSG[help_opt_cert_mode]="      --cert-mode <m>    program|openssl|custom|acme certificate source (default program)"
+            MSG[help_opt_self_sign_days]="      --self-sign-days <n>  openssl self-signed validity in days (default %s)"
+            MSG[help_opt_cert_san]="      --cert-san <list>  openssl self-signed SAN, comma-separated DNS:/IP:"
+            MSG[help_opt_acme_domain]="      --acme-domain <fqdn>  Domain for the acme.sh certificate (implies --cert-mode acme)"
+            MSG[help_opt_acme_email]="      --acme-email <mail>  acme.sh account email (optional)"
+            MSG[help_opt_acme_challenge]="      --acme-challenge <http|dns>  ACME challenge type (default http; http needs port 80 free)"
+            MSG[help_opt_acme_dns]="      --acme-dns <plugin>  acme.sh DNS plugin; implies --acme-challenge dns"
+            MSG[help_opt_acme_auto_renew]="      --acme-auto-renew <yes|no>  Auto-renew job (default yes)"
+            MSG[help_opt_acme_renew_days]="      --acme-renew-days <n>  Renew inside the last n days of validity (default 30)"
+            MSG[help_opt_renew_cert]="      --renew-cert       Renew the live acme.sh/openssl certificate now"
             MSG[help_opt_socks]="      --socks <addr>    Portal outbound or Vector inbound SOCKS"
             MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink carrier (default tcp on 2.x, udp on 1.x)"
             MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink carrier (default tcp on 2.x, udp on 1.x)"
@@ -446,6 +556,7 @@ set_language() {
             MSG[info_os]="ОС: %s %s, Init: %s"
             MSG[info_arch]="Архитектура: %s, libc: %s"
             MSG[info_install_deps]="Установка зависимостей: %s"
+            MSG[info_install_openssl]="Установка openssl для самоподписанного сертификата"
             MSG[info_query_version]="Получение последней версии..."
             MSG[info_download]="Загрузка nowhere %s (%s)"
             MSG[info_install_to]="Установка в %s"
@@ -469,7 +580,13 @@ set_language() {
             MSG[prompt_morph]="Morph (0/1) [%s]: "
             MSG[prompt_tcp_port]="Порт TLS/TCP [%s]: "
             MSG[prompt_udp_port]="Порт QUIC/UDP [%s]: "
-            MSG[prompt_tls]="TLS (1=самоподписанный, 2=свой сертификат) [%s]: "
+            MSG[prompt_tls]="TLS (задаётся выбором сертификата выше) [%s]: "
+            MSG[prompt_cert_mode]="Источник сертификата (1=самоподписанный программой, 2=самоподписанный openssl, 3=свои PEM-файлы, 4=acme.sh) [%s]: "
+            MSG[info_cert_mode_program]="Самоподписанный программой (tls=1): сертификат создаёт сам бинарник, SAN зафиксирован на localhost, и он пересоздаётся при каждом запуске — pin меняется вместе с ним, поэтому пересылайте share URI после каждого перезапуска."
+            MSG[info_cert_mode_openssl]="Самоподписанный openssl (tls=2): скрипт запишет cert.pem/key.pem с выбранным сроком действия и зафиксирует pin в share URI. Pin стабилен между перезапусками."
+            MSG[info_cert_mode_custom]="Свой сертификат (tls=2): укажите свои PEM-файлы в crt=/key=. Клиенты проверяют через sni=, поэтому нужно публичное имя."
+            MSG[prompt_self_sign_days]="Срок действия самоподписанного сертификата в днях [%s]: "
+            MSG[prompt_cert_san]="Список SAN сертификата (через запятую DNS:/IP:) [%s]: "
             MSG[prompt_cert]="Путь к сертификату [%s]: "
             MSG[prompt_keyfile]="Путь к ключу [%s]: "
             MSG[warn_spec_removed]="Параметр spec удалён в Nowhere 1.5; --spec игнорируется"
@@ -581,6 +698,49 @@ set_language() {
             MSG[info_pin_fetched]="Отпечаток сертификата получен автоматически: %s"
             MSG[label_fingerprint]="Pin серта:  %s"
             MSG[prompt_fetch_pin]="Получить отпечаток сертификата Portal автоматически? [Y/n]: "
+            MSG[err_cert_mode_invalid]="Неверный источник сертификата %s (ожидалось program, openssl, custom или acme)"
+            MSG[err_not_configured]="Nowhere ещё не настроен; сначала запустите --config или --install"
+            MSG[err_openssl_missing]="openssl недоступен и не удалось его установить; установите вручную или выберите другой источник сертификата"
+            MSG[err_self_sign_failed]="Не удалось создать самоподписанный сертификат"
+            MSG[ok_self_signed]="Самоподписанный сертификат записан в %s и %s (срок %s дней), pin %s"
+            MSG[info_cert_mode_acme]="Сертификат acme.sh (tls=2): скрипт запускает acme.sh для получения настоящего сертификата от CA для вашего домена. Клиенты проверяют через sni=, поэтому нужны публичное имя и доступный порт 80 (или DNS-плагин)."
+            MSG[prompt_acme_domain]="Домен для выпуска сертификата [%s]: "
+            MSG[prompt_acme_email]="Email аккаунта acme.sh (необязательно, для уведомлений об истечении): "
+            MSG[prompt_acme_challenge]="Тип проверки ACME (http/dns) [%s]: "
+            MSG[prompt_acme_dns]="DNS-плагин acme.sh (например dns_cf, dns_ali; его учётные данные должны быть экспортированы заранее): "
+            MSG[prompt_acme_auto_renew]="Установить задание автообновления сертификата? (yes/no) [%s]: "
+            MSG[prompt_acme_renew_days]="Обновлять, когда остаётся столько дней действия [%s]: "
+            MSG[err_acme_domain_invalid]="Неверный домен ACME %s (ожидалось публичное имя вида relay.example.com)"
+            MSG[err_acme_dns_missing]="Для проверки dns нужно имя плагина через --acme-dns"
+            MSG[err_acme_challenge_invalid]="Неверный тип проверки ACME %s (ожидалось http или dns)"
+            MSG[err_acme_auto_renew_invalid]="Неверное значение автообновления %s (ожидалось yes или no)"
+            MSG[err_acme_port_busy]="Порт %s занят; для проверки http он должен быть свободен. Освободите порт или используйте --acme-challenge dns с плагином --acme-dns"
+            MSG[err_acme_standalone_missing]="Для проверки http нужен socat, установить его не удалось; установите socat или используйте --acme-challenge dns"
+            MSG[err_acme_install_failed]="Не удалось установить acme.sh в %s; проверьте сеть и curl, затем повторите"
+            MSG[err_acme_issue_failed]="acme.sh не смог выпустить сертификат для %s; причину смотрите в журнале acme.sh"
+            MSG[err_acme_renew_failed]="acme.sh не смог обновить сертификат для %s"
+            MSG[err_acme_not_installed]="acme.sh не установлен по пути %s"
+            MSG[err_acme_domain_missing]="Записанный домен ACME отсутствует; повторите шаг сертификата с --cert-mode acme"
+            MSG[err_acme_renew_days_invalid]="Неверное окно обновления: %s (допустимо 1-89 дней)"
+            MSG[info_acme_cert_kept]="Сертификат для %s действителен до %s, это больше %s дней; оставляем как есть"
+            MSG[warn_acme_renew_failed]="Обновление для %s не удалось; оставляем текущий сертификат, задание автообновления повторит попытку"
+            MSG[warn_acme_cron_unavailable]="Демон cron не найден; автообновление не запланировано. Обновляйте вручную через --renew-cert"
+            MSG[info_acme_cron_installed]="Автообновление запланировано: %s (обновление в последние %s дня действия)"
+            MSG[info_install_acme]="Установка acme.sh..."
+            MSG[info_install_socat]="Установка socat для standalone-проверки acme.sh..."
+            MSG[ok_acme_cert]="Сертификат acme.sh для %s готов: %s и %s"
+            MSG[ok_acme_renew]="Сертификат для %s обновлён (%s)"
+            MSG[info_renew_not_needed]="В режиме %s обновлять нечего (бинарник создаёт новый сертификат при каждом запуске)"
+            MSG[err_renew_not_portal]="--renew-cert применяется только к конфигурации Portal"
+            MSG[label_acme_domain]="Домен ACME:  %s"
+            MSG[label_acme_renewal]="Обновление:  %s"
+            MSG[acme_renewal_on]="включено (%s, обновление в последние %s дней действия)"
+            MSG[acme_renewal_off]="выключено - обновите через --renew-cert"
+            MSG[label_cert_mode]="Сертификат: %s"
+            MSG[label_cert_expires]="Действует до: %s"
+            MSG[warn_cert_expired]="Срок действия сертификата Portal истёк (%s); клиенты его отклонят. Перевыпустите его в меню конфигурации."
+            MSG[warn_cert_expiring]="Срок действия сертификата Portal истекает через %s дней (%s)."
+            MSG[warn_cert_file_missing]="Файл сертификата Portal %s отсутствует; с tls=2 Portal не запустится, пока он не появится"
             MSG[status_title]="========== Статус Nowhere =========="
             MSG[label_binary]="Бинарник:   %s"
             MSG[label_script]="Скрипт:     %s"
@@ -605,6 +765,7 @@ set_language() {
             MSG[menu_stop]="Остановить службу"
             MSG[menu_restart]="Перезапустить службу"
             MSG[menu_status]="Показать статус"
+            MSG[menu_renew]="Обновить сертификат сейчас"
             MSG[menu_tui]="TUI / статус инстанса"
             MSG[menu_share]="Показать URI для шаринга"
             MSG[menu_qr]="Установить поддержку QR"
@@ -634,6 +795,7 @@ set_language() {
             MSG[mf_tcp_port]="Порт TCP"
             MSG[mf_udp_port]="Порт UDP"
             MSG[mf_tls]="Режим TLS"
+            MSG[mf_cert_mode]="Источник сертификата"
             MSG[mf_cert]="Файл сертификата"
             MSG[mf_keyfile]="Файл закрытого ключа"
             MSG[mf_alpn]="ALPN"
@@ -695,6 +857,16 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        Режим TLS (по умолчанию 1)"
             MSG[help_opt_cert]="      --cert <путь>      Сертификат при TLS=2"
             MSG[help_opt_keyfile]="      --keyfile <путь>   Ключ при TLS=2"
+            MSG[help_opt_cert_mode]="      --cert-mode <реж>   program|openssl|custom|acme — источник сертификата (по умолчанию program)"
+            MSG[help_opt_self_sign_days]="      --self-sign-days <n>  срок самоподписанного openssl в днях (по умолчанию %s)"
+            MSG[help_opt_cert_san]="      --cert-san <список>  SAN самоподписанного openssl, через запятую DNS:/IP:"
+            MSG[help_opt_acme_domain]="      --acme-domain <fqdn>  Домен для сертификата acme.sh (включает --cert-mode acme)"
+            MSG[help_opt_acme_email]="      --acme-email <почта>  Email аккаунта acme.sh (необязательно)"
+            MSG[help_opt_acme_challenge]="      --acme-challenge <http|dns>  Тип проверки ACME (по умолчанию http; http требует свободный порт 80)"
+            MSG[help_opt_acme_dns]="      --acme-dns <плагин>  DNS-плагин acme.sh; включает --acme-challenge dns"
+            MSG[help_opt_acme_auto_renew]="      --acme-auto-renew <yes|no>  Задание автообновления (по умолчанию yes)"
+            MSG[help_opt_acme_renew_days]="      --acme-renew-days <n>  Обновлять в последние n дней действия (по умолчанию 30)"
+            MSG[help_opt_renew_cert]="      --renew-cert       Обновить текущий сертификат acme.sh/openssl сейчас"
             MSG[help_opt_socks]="      --socks <addr>    Исходящий SOCKS Portal или входящий SOCKS Vector"
             MSG[help_opt_up]="      --up <tcp|udp|mix>  Uplink (по умолчанию tcp на 2.x, udp на 1.x)"
             MSG[help_opt_down]="      --down <tcp|udp|mix>  Downlink (по умолчанию tcp на 2.x, udp на 1.x)"
@@ -768,6 +940,7 @@ set_language() {
             MSG[info_os]="系统: %s %s, Init: %s"
             MSG[info_arch]="架构: %s, libc: %s"
             MSG[info_install_deps]="安装依赖: %s"
+            MSG[info_install_openssl]="正在安装 openssl 用于自签证书"
             MSG[info_query_version]="查询最新版本..."
             MSG[info_download]="下载 nowhere %s (%s)"
             MSG[info_install_to]="安装到 %s"
@@ -791,7 +964,13 @@ set_language() {
             MSG[prompt_morph]="Morph 线形伪装 (0/1) [%s]: "
             MSG[prompt_tcp_port]="TLS/TCP 端口 [%s]: "
             MSG[prompt_udp_port]="QUIC/UDP 端口 [%s]: "
-            MSG[prompt_tls]="TLS 模式 (1=自签, 2=自定义证书) [%s]: "
+            MSG[prompt_tls]="TLS 模式（由上方的证书抉择决定）[%s]: "
+            MSG[prompt_cert_mode]="证书来源 (1=程序自签, 2=openssl 自签, 3=自定义 PEM 路径, 4=acme.sh) [%s]: "
+            MSG[info_cert_mode_program]="程序自签（tls=1）：证书由二进制自己生成，SAN 固定为 localhost，且每次启动都会重新生成 —— pin 随之改变，重启后需重新分发分享 URI。"
+            MSG[info_cert_mode_openssl]="openssl 自签（tls=2）：由本脚本生成 cert.pem/key.pem，有效期自选，并把 pin 固定进分享 URI。pin 跨重启保持稳定。"
+            MSG[info_cert_mode_custom]="自定义证书（tls=2）：crt=/key= 指向你自己的 PEM 文件。客户端通过 sni= 校验，因此需要公网主机名。"
+            MSG[prompt_self_sign_days]="自签证书有效期（天）[%s]: "
+            MSG[prompt_cert_san]="证书 SAN 列表（逗号分隔，DNS:/IP:）[%s]: "
             MSG[prompt_cert]="证书路径 [%s]: "
             MSG[prompt_keyfile]="私钥路径 [%s]: "
             MSG[warn_spec_removed]="Nowhere 1.5 已移除 spec；忽略 --spec"
@@ -903,6 +1082,49 @@ set_language() {
             MSG[info_pin_fetched]="已自动获取证书 pin: %s"
             MSG[label_fingerprint]="证书 pin:  %s"
             MSG[prompt_fetch_pin]="是否自动获取 Portal 证书指纹? [Y/n]: "
+            MSG[err_cert_mode_invalid]="无效的证书来源 %s（应为 program、openssl、custom 或 acme）"
+            MSG[err_not_configured]="Nowhere 尚未配置；请先运行 --config 或 --install"
+            MSG[err_openssl_missing]="openssl 不可用且无法自动安装；请手动安装或改选其他证书来源"
+            MSG[err_self_sign_failed]="自签证书生成失败"
+            MSG[ok_self_signed]="自签证书已写入 %s 与 %s（有效期 %s 天），pin %s"
+            MSG[info_cert_mode_acme]="acme.sh 证书（tls=2）：由本脚本驱动 acme.sh 为你的域名申请真实 CA 签发证书。客户端通过 sni= 校验，因此需要公网主机名以及可达的 80 端口（或使用 DNS 插件）。"
+            MSG[prompt_acme_domain]="申请证书的域名 [%s]： "
+            MSG[prompt_acme_email]="acme.sh 账户邮箱（可选，用于到期提醒）： "
+            MSG[prompt_acme_challenge]="ACME 验证方式（http/dns）[%s]： "
+            MSG[prompt_acme_dns]="acme.sh DNS 插件（例如 dns_cf、dns_ali；需先导出其凭据）： "
+            MSG[prompt_acme_auto_renew]="是否安装证书自动续期任务？（yes/no）[%s]： "
+            MSG[prompt_acme_renew_days]="剩余多少天有效期时续期 [%s]： "
+            MSG[err_acme_domain_invalid]="无效的 ACME 域名 %s（应为类似 relay.example.com 的公网主机名）"
+            MSG[err_acme_dns_missing]="dns 验证方式需要通过 --acme-dns 指定插件名"
+            MSG[err_acme_challenge_invalid]="无效的 ACME 验证方式 %s（应为 http 或 dns）"
+            MSG[err_acme_auto_renew_invalid]="无效的自动续期取值 %s（应为 yes 或 no）"
+            MSG[err_acme_port_busy]="端口 %s 已被占用；http 验证方式需要该端口空闲。请释放该端口，或改用 --acme-challenge dns 配合 --acme-dns 插件"
+            MSG[err_acme_standalone_missing]="http 验证方式需要 socat，但无法自动安装；请手动安装 socat，或改用 --acme-challenge dns"
+            MSG[err_acme_install_failed]="无法将 acme.sh 安装到 %s；请检查网络与 curl 后重试"
+            MSG[err_acme_issue_failed]="acme.sh 为 %s 签发证书失败；具体原因见 acme.sh 日志"
+            MSG[err_acme_renew_failed]="acme.sh 为 %s 续期证书失败"
+            MSG[err_acme_not_installed]="acme.sh 未安装于 %s"
+            MSG[err_acme_domain_missing]="缺失已记录的 ACME 域名；请用 --cert-mode acme 重新执行证书步骤"
+            MSG[err_acme_renew_days_invalid]="续期窗口无效：%s（请填 1-89 天）"
+            MSG[info_acme_cert_kept]="%s 的证书有效期至 %s，剩余超过 %s 天；沿用现有证书"
+            MSG[warn_acme_renew_failed]="%s 续期失败；保留现有证书，交由自动续期任务稍后重试"
+            MSG[warn_acme_cron_unavailable]="未找到 cron 守护进程；未设置自动续期。请用 --renew-cert 手动续期"
+            MSG[info_acme_cron_installed]="已设置自动续期：%s（剩余有效期 %s 天内时才续期）"
+            MSG[info_install_acme]="正在安装 acme.sh..."
+            MSG[info_install_socat]="正在为 acme.sh standalone 验证安装 socat..."
+            MSG[ok_acme_cert]="%s 的 acme.sh 证书已就绪：%s 与 %s"
+            MSG[ok_acme_renew]="%s 的证书已续期（%s）"
+            MSG[info_renew_not_needed]="%s 模式下无需续期（二进制每次启动都会重新生成证书）"
+            MSG[err_renew_not_portal]="--renew-cert 仅适用于 Portal 配置"
+            MSG[label_acme_domain]="ACME 域名: %s"
+            MSG[label_acme_renewal]="ACME 续期: %s"
+            MSG[acme_renewal_on]="开启（%s，剩余有效期 %s 天内时续期）"
+            MSG[acme_renewal_off]="关闭 — 请用 --renew-cert 手动续期"
+            MSG[label_cert_mode]="证书:      %s"
+            MSG[label_cert_expires]="证书至:    %s"
+            MSG[warn_cert_expired]="Portal 证书已过期（%s）；客户端会拒绝连接。请在配置菜单中重新签发。"
+            MSG[warn_cert_expiring]="Portal 证书将于 %s 天后过期（%s）。"
+            MSG[warn_cert_file_missing]="Portal 证书文件 %s 不存在；tls=2 下证书缺失时 Portal 无法启动"
             MSG[status_title]="========== Nowhere 状态 =========="
             MSG[label_binary]="二进制位置: %s"
             MSG[label_script]="脚本版本:   %s"
@@ -927,6 +1149,7 @@ set_language() {
             MSG[menu_stop]="停止服务"
             MSG[menu_restart]="重启服务"
             MSG[menu_status]="查看状态"
+            MSG[menu_renew]="立即续期证书"
             MSG[menu_tui]="TUI / 实例状态"
             MSG[menu_share]="显示分享 URI"
             MSG[menu_qr]="安装二维码支持库"
@@ -956,6 +1179,7 @@ set_language() {
             MSG[mf_tcp_port]="TCP 端口"
             MSG[mf_udp_port]="UDP 端口"
             MSG[mf_tls]="TLS 模式"
+            MSG[mf_cert_mode]="证书来源"
             MSG[mf_cert]="证书文件"
             MSG[mf_keyfile]="私钥文件"
             MSG[mf_alpn]="ALPN"
@@ -1017,6 +1241,16 @@ set_language() {
             MSG[help_opt_tls]="      --tls <1|2>        指定 TLS 模式 (默认 1)"
             MSG[help_opt_cert]="      --cert <路径>      TLS=2 时的证书路径"
             MSG[help_opt_keyfile]="      --keyfile <路径>   TLS=2 时的私钥路径"
+            MSG[help_opt_cert_mode]="      --cert-mode <模式> program|openssl|custom|acme 证书来源（默认 program）"
+            MSG[help_opt_self_sign_days]="      --self-sign-days <n>  openssl 自签有效期（天），默认 %s"
+            MSG[help_opt_cert_san]="      --cert-san <列表>   openssl 自签 SAN，逗号分隔 DNS:/IP:"
+            MSG[help_opt_acme_domain]="      --acme-domain <域名>  acme.sh 证书域名（隐含 --cert-mode acme）"
+            MSG[help_opt_acme_email]="      --acme-email <邮箱>  acme.sh 账户邮箱（可选）"
+            MSG[help_opt_acme_challenge]="      --acme-challenge <http|dns>  ACME 验证方式（默认 http；http 需要 80 端口空闲）"
+            MSG[help_opt_acme_dns]="      --acme-dns <插件>   acme.sh DNS 插件；隐含 --acme-challenge dns"
+            MSG[help_opt_acme_auto_renew]="      --acme-auto-renew <yes|no>  自动续期任务（默认 yes）"
+            MSG[help_opt_acme_renew_days]="      --acme-renew-days <n>  剩余有效期 n 天内时才续期（默认 30）"
+            MSG[help_opt_renew_cert]="      --renew-cert       立即续期当前的 acme.sh/openssl 证书"
             MSG[help_opt_socks]="      --socks <地址>    Portal 出站或 Vector 入站 SOCKS"
             MSG[help_opt_up]="      --up <tcp|udp|mix>  上行载体（2.x 默认 tcp，1.x 默认 udp）"
             MSG[help_opt_down]="      --down <tcp|udp|mix>  下行载体（2.x 默认 tcp，1.x 默认 udp）"
@@ -1340,6 +1574,684 @@ save_share_host() {
     else
         rm -f "$HOST_FILE"
     fi
+}
+
+# Certificate modes ====================
+# The Portal binary only understands tls=1 (it generates the certificate) and
+# tls=2 (it loads PEM files from crt=/key=). The certificate *source* is a
+# manager-level choice made before the TLS question:
+#   program -> tls=1, certificate regenerated on every start, pin changes too
+#   openssl -> tls=2, manager self-signs with openssl, stable pin in pin.conf
+#   custom  -> tls=2, operator-supplied PEM files, clients verify via sni=
+#   acme    -> tls=2, acme.sh-issued PEM files, clients verify via sni=
+# pin= and sni= are client-side (vector/nowhere://) parameters only: the Portal
+# URL whitelist rejects both, so the pin lives in a sidecar file and is only
+# ever written into share links.
+CERT_MODES="program openssl custom acme"
+
+normalize_cert_mode() {
+    local raw="${1:-}"
+    case "$raw" in
+        ""|program|1) echo "program" ;;
+        openssl|2)    echo "openssl" ;;
+        custom|3)     echo "custom" ;;
+        acme|4)       echo "acme" ;;
+        *)            return 1 ;;
+    esac
+}
+
+cert_mode_tls() {
+    case "$1" in
+        openssl|custom|acme) echo "2" ;;
+        *)                   echo "1" ;;
+    esac
+}
+
+# Inverse of the above: recover the certificate source from a stored run URL.
+# The sidecar wins when present because tls=2 without a pin is ambiguous
+# between custom and acme; a missing sidecar with tls=2 means an install that
+# predates the acme mode.
+detect_cert_mode() {
+    local url="$1" tls
+    tls=$(get_query_param "$url" "tls")
+    tls=${tls:-1}
+    if [[ "$tls" != "2" ]]; then
+        echo "program"
+        return
+    fi
+    local sidecar
+    sidecar=$(load_cert_mode_field mode)
+    if [[ -n "$sidecar" ]]; then
+        echo "$sidecar"
+        return
+    fi
+    if [[ -n "$(load_pin)" ]]; then
+        echo "openssl"
+    else
+        echo "custom"
+    fi
+}
+
+# ==================== certmode.conf sidecar ====================
+# Records which tls=2 certificate source is live. Needed because the run URL
+# only carries tls=2 for both custom and acme, and only this file knows the
+# difference. Four fields, one per line: mode=, domain=, autorenew=, renewdays=.
+save_cert_mode() {
+    local mode="$1" domain="$2" autorenew="$3" renewdays="${4:-}"
+    mkdir -p "$CONFIG_DIR"
+    {
+        printf 'mode=%s\n' "$mode"
+        [[ -n "$domain" ]] && printf 'domain=%s\n' "$domain"
+        [[ -n "$autorenew" ]] && printf 'autorenew=%s\n' "$autorenew"
+        [[ -n "$renewdays" ]] && printf 'renewdays=%s\n' "$renewdays"
+    } > "$CERT_MODE_FILE"
+}
+
+load_cert_mode_field() {
+    local field="$1"
+    [[ -f "$CERT_MODE_FILE" ]] || return 0
+    sed -n "s/^${field}=//p" "$CERT_MODE_FILE" | head -n 1
+}
+
+clear_cert_mode() {
+    rm -f "$CERT_MODE_FILE"
+}
+
+save_pin() {
+    local pin="$1"
+    mkdir -p "$CONFIG_DIR"
+    if [[ -n "$pin" ]]; then
+        printf '%s\n' "$pin" > "$PIN_FILE"
+    else
+        rm -f "$PIN_FILE"
+    fi
+}
+
+load_pin() {
+    if [[ -f "$PIN_FILE" ]]; then
+        tr -d '\n\r' < "$PIN_FILE"
+    fi
+}
+
+clear_pin() {
+    rm -f "$PIN_FILE"
+}
+
+# SHA-256 of the leaf certificate DER, lowercase hex — the exact form the
+# binary prints as "certificate fingerprint" and compares against pin=.
+cert_pin_from_file() {
+    local crt="$1" pin=""
+    [[ -f "$crt" ]] || return 1
+    pin=$(openssl x509 -in "$crt" -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)
+    [[ "$pin" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s' "$pin"
+}
+
+cert_not_after() {
+    local crt="$1" end=""
+    [[ -f "$crt" ]] || return 1
+    end=$(openssl x509 -in "$crt" -noout -enddate 2>/dev/null | cut -d= -f2-)
+    [[ -n "$end" ]] || return 1
+    printf '%s' "$end"
+}
+
+# Default SAN list: the address clients dial (share host), the server's public
+# address, and loopback so local probes keep working. A pin-verified client
+# ignores the hostname entirely, so this is hygiene rather than a requirement.
+default_cert_san() {
+    local host="$1" san="" entry prefixed ip
+    ip=$(get_public_ip)
+    for entry in "$host" "$ip" "localhost" "127.0.0.1"; do
+        [[ -z "$entry" ]] && continue
+        if [[ "$entry" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$entry" == "::1" ]]; then
+            prefixed="IP:$entry"
+        else
+            prefixed="DNS:$entry"
+        fi
+        case ",$san," in
+            *",$prefixed,"*) continue ;;
+        esac
+        san="${san:+$san,}${prefixed}"
+    done
+    printf '%s' "$san"
+}
+
+# Normalizes a SAN CSV (DNS:a,IP:1.2.3.4 or bare a,1.2.3.4) into the form
+# openssl -addext wants. Echoes the normalized list; fails on an empty or
+# unusable entry.
+normalize_cert_san() {
+    local raw="$1" out="" entry kind value
+    local IFS=','
+    for entry in $raw; do
+        entry="${entry#"${entry%%[![:space:]]*}"}"
+        entry="${entry%"${entry##*[![:space:]]}"}"
+        [[ -z "$entry" ]] && continue
+        kind="DNS"
+        value="$entry"
+        case "$entry" in
+            DNS:*|IP:*) kind="${entry%%:*}"; value="${entry#*:}" ;;
+        esac
+        [[ -z "$value" ]] && continue
+        if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$value" == "::1" ]]; then
+            kind="IP"
+        elif [[ "$kind" == "IP" ]]; then
+            return 1
+        fi
+        if [[ ! "$value" =~ ^[A-Za-z0-9._*-]+$ ]]; then
+            return 1
+        fi
+        out="${out:+$out,}${kind}:${value}"
+    done
+    [[ -n "$out" ]] || return 1
+    printf '%s' "$out"
+}
+
+# Self-signs a certificate with openssl and echoes its pin. The private key is
+# written with mode 600; both files replace whatever was there before.
+openssl_self_sign() {
+    local crt="$1" keyfile="$2" days="$3" san="$4" cn="$5" pin=""
+    [[ "$days" =~ ^[0-9]+$ ]] || return 1
+    (( days >= 1 && days <= 36500 )) || return 1
+    mkdir -p "$(dirname "$crt")" "$(dirname "$keyfile")"
+    if ! openssl req -x509 -newkey "ec" \
+        -pkeyopt "ec_paramgen_curve:${SELF_SIGN_KEY_CURVE}" \
+        -days "$days" -nodes -sha256 \
+        -keyout "$keyfile" -out "$crt" \
+        -subj "/CN=${cn}" \
+        -addext "subjectAltName=${san}" \
+        -addext "basicConstraints=critical,CA:FALSE" \
+        -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
+        -addext "extendedKeyUsage=serverAuth" >/dev/null 2>&1; then
+        rm -f "$crt" "$keyfile"
+        return 1
+    fi
+    chmod 600 "$keyfile"
+    chmod 644 "$crt"
+    pin=$(cert_pin_from_file "$crt") || { rm -f "$crt" "$keyfile"; return 1; }
+    printf '%s' "$pin"
+}
+
+ensure_openssl() {
+    command -v openssl &>/dev/null && return 0
+    log_info "$(t info_install_openssl)"
+    set +e
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get update -qq && apt-get install -y -qq openssl
+    elif [[ "$PKG_MANAGER" == "apk" ]]; then
+        apk add --no-cache openssl
+    elif [[ "$PKG_MANAGER" == "pkg" ]]; then
+        pkg install -y openssl
+    else
+        restore_errexit
+        return 1
+    fi
+    local rc=$?
+    restore_errexit
+    [[ $rc -eq 0 ]] && command -v openssl &>/dev/null
+}
+
+# ==================== acme.sh certificate mode ====================
+# ACME_BIN/ACME_DIR/ACME_RELOAD_HOOK/ACME_RENEW_HOOK/ACME_RENEW_LOG are
+# variables (not literals) so the test suite can re-point them at a sandbox.
+# acme.sh itself is installed on demand into $HOME/.acme.sh; the manager only
+# drives it, never wraps it, and never touches DNS provider credentials — the
+# operator exports those into acme.sh's own environment beforehand.
+
+# Puts errexit back the way the caller had it. The install flow runs under
+# `set -e`, but the same helpers are called from the test suite and from
+# interactive paths where it is off; assuming either state breaks the caller.
+restore_errexit() {
+    [[ "$-" == *e* ]] || return 0
+    set -e
+}
+
+ensure_acme() {
+    if [[ -x "$ACME_BIN" ]]; then
+        return 0
+    fi
+    local email="${1:-${ACME_EMAIL:-}}"
+    log_info "$(t info_install_acme)"
+    set +e
+    curl -fsSL https://get.acme.sh | sh -s email="$email" >/dev/null 2>&1
+    local rc=$?
+    restore_errexit
+    [[ $rc -eq 0 ]] && [[ -x "$ACME_BIN" ]]
+}
+
+# acme.sh's standalone server is socat or python; without either it refuses to
+# run at all. python3 is common enough on servers that it is accepted as-is,
+# socat is installed on demand because it is small and present in every repo.
+ensure_standalone_tool() {
+    command -v socat >/dev/null 2>&1 && return 0
+    command -v python3 >/dev/null 2>&1 && return 0
+    log_info "$(t info_install_socat)"
+    set +e
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        apt-get update -qq && apt-get install -y -qq socat
+    elif [[ "$PKG_MANAGER" == "apk" ]]; then
+        apk add --no-cache socat
+    elif [[ "$PKG_MANAGER" == "pkg" ]]; then
+        pkg install -y socat
+    else
+        restore_errexit
+        return 1
+    fi
+    local rc=$?
+    restore_errexit
+    [[ $rc -eq 0 ]] && command -v socat &>/dev/null
+}
+
+# Echoes the crt/key paths acme.sh installs for a domain, and exports the same
+# pair through ACME_CRT/ACME_KEY so callers can feed build_portal_url directly.
+acme_paths() {
+    local domain="$1"
+    ACME_CRT="${ACME_DIR}/${domain}_ecc/fullchain.cer"
+    ACME_KEY="${ACME_DIR}/${domain}_ecc/${domain}.key"
+    printf '%s\n%s' "$ACME_CRT" "$ACME_KEY"
+}
+
+# RFC 1035 hostname: labels of alphanumerics and inner hyphens, at least one
+# dot, no leading/trailing hyphen per label. Deliberately rejects wildcards,
+# underscores, bare labels and all-numeric names (IPv4 literals) — acme.sh
+# needs a resolvable public name.
+acme_valid_domain() {
+    local domain="$1"
+    [[ "$domain" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || return 1
+    [[ "$domain" =~ ^[0-9.]+$ ]] && return 1
+    return 0
+}
+
+# Runs after a successful (re)issue. The Portal reloads tls=2 files every 15
+# seconds on its own; this is the belt-and-braces path for the rare case where
+# the socket must be reopened. Paths are expanded at write time so the hook
+# stays valid even if this script is later removed.
+write_acme_reload_hook() {
+    mkdir -p "$CONFIG_DIR"
+    cat > "$ACME_RELOAD_HOOK" <<HOOK
+#!/bin/sh
+# Installed by oh-nowhere: reload the Portal after acme.sh renews the cert.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart ${SERVICE_NAME} 2>/dev/null \\
+        || service ${SERVICE_NAME} restart 2>/dev/null || true
+elif command -v service >/dev/null 2>&1; then
+    service ${SERVICE_NAME} restart 2>/dev/null || true
+fi
+exit 0
+HOOK
+    chmod 755 "$ACME_RELOAD_HOOK"
+}
+
+# The cron entry. Kept separate from the reload hook so a failed renewal leaves
+# a log the operator can read, and so the schedule lives in exactly one place.
+# The window check is the point of the whole entry: the job fires every day, but
+# acme.sh is only invoked once the issued chain is inside ACME_RENEW_DAYS, so a
+# healthy certificate costs one local openssl call and no network traffic.
+write_acme_renew_hook() {
+    local domain="$1" renew_days="$2"
+    mkdir -p "$CONFIG_DIR"
+    cat > "$ACME_RENEW_HOOK" <<HOOK
+#!/bin/sh
+# Installed by oh-nowhere: renew the acme.sh certificate when it enters its
+# renewal window, and log the result.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ACME_HOME="$(dirname "$ACME_BIN")"
+LOG_FILE="$ACME_RENEW_LOG"
+DOMAIN="$domain"
+RENEW_DAYS="$renew_days"
+CRT="${ACME_DIR}/${domain}_ecc/fullchain.cer"
+{
+    echo "===== \$(date '+%Y-%m-%d %H:%M:%S') ====="
+    if [ ! -x "\$ACME_HOME/acme.sh" ]; then
+        echo "acme.sh not found at \$ACME_HOME/acme.sh"
+    elif [ -f "\$CRT" ] && openssl x509 -in "\$CRT" -noout \\
+            -checkend "\$((RENEW_DAYS * 86400))" >/dev/null 2>&1; then
+        echo "certificate valid until \$(openssl x509 -in "\$CRT" -noout -enddate | cut -d= -f2-); more than \$RENEW_DAYS days left, skipping"
+    else
+        "\$ACME_HOME/acme.sh" --renew -d "\$DOMAIN" --ecc --home "\$ACME_HOME" 2>&1
+    fi
+} >> "\$LOG_FILE" 2>&1
+exit 0
+HOOK
+    chmod 755 "$ACME_RENEW_HOOK"
+}
+
+acme_issue_cert() {
+    local domain="$1" email="$2" challenge="$3" dns="$4"
+    local -a cmd=("$ACME_BIN" --issue -d "$domain" --keylength "$ACME_KEY_LENGTH"
+                  --server "$ACME_CA_SERVER" --reloadcmd "$ACME_RELOAD_HOOK")
+    [[ -n "$email" ]] && cmd+=(--accountemail "$email")
+    if [[ "$challenge" == "dns" ]]; then
+        [[ -n "$dns" ]] || return 1
+        cmd+=(--dns "$dns")
+    else
+        cmd+=(--standalone)
+    fi
+    set +e
+    "${cmd[@]}" >/dev/null 2>&1
+    local rc=$?
+    restore_errexit
+    [[ $rc -eq 0 ]]
+}
+
+acme_renew_cert() {
+    local domain="$1"
+    set +e
+    "$ACME_BIN" --renew -d "$domain" --ecc >/dev/null 2>&1
+    local rc=$?
+    restore_errexit
+    [[ $rc -eq 0 ]]
+}
+
+# Is the issued chain inside its renewal window? An absent or unreadable file
+# counts as due, because "renew" is also the only way to repair that state.
+# openssl -checkend answers in seconds without any date parsing, so it behaves
+# the same on GNU and BSD userlands.
+acme_renew_due() {
+    local crt="$1" days="$2"
+    [[ -f "$crt" ]] || return 0
+    ! openssl x509 -in "$crt" -noout -checkend "$((days * 86400))" >/dev/null 2>&1
+}
+
+# Is a cron daemon actually able to run our entry? crontab(1) existing is the
+# strong signal; a bare /etc/cron.d is accepted because several minimal images
+# ship the spool without the client.
+cron_daemon_available() {
+    command -v crontab >/dev/null 2>&1 && return 0
+    [[ -d /etc/cron.d ]] && return 0
+    return 1
+}
+
+install_acme_auto_renew() {
+    local schedule="$ACME_CRON_SCHEDULE"
+    if command -v crontab >/dev/null 2>&1; then
+        local current
+        current=$(crontab -l 2>/dev/null || true)
+        if ! printf '%s\n' "$current" | grep -qF "$ACME_CRON_MARK"; then
+            # Append rather than rewrite, so the operator's own jobs survive.
+            if [[ -n "$current" ]]; then
+                printf '%s\n%s %s %s\n' \
+                    "$current" "$ACME_CRON_MARK" "$schedule" "$ACME_RENEW_HOOK" \
+                    | crontab -
+            else
+                printf '%s %s %s\n' \
+                    "$ACME_CRON_MARK" "$schedule" "$ACME_RENEW_HOOK" | crontab -
+            fi
+        fi
+        return 0
+    fi
+    if [[ -d /etc/cron.d ]]; then
+        printf '%s %s root %s\n' "$ACME_CRON_MARK" "$schedule" "$ACME_RENEW_HOOK" \
+            > "$ACME_CRON_D_FILE"
+        chmod 644 "$ACME_CRON_D_FILE"
+        return 0
+    fi
+    return 1
+}
+
+remove_acme_auto_renew() {
+    if command -v crontab >/dev/null 2>&1; then
+        local current
+        current=$(crontab -l 2>/dev/null || true)
+        if printf '%s\n' "$current" | grep -qF "$ACME_CRON_MARK"; then
+            # Keep everything except our two lines, then drop the blank line the
+            # removal can leave at the end.
+            printf '%s\n' "$current" | grep -vF "$ACME_CRON_MARK" \
+                | grep -vF "$ACME_RENEW_HOOK" | grep -v '^$' | crontab -
+        fi
+    fi
+    rm -f "$ACME_CRON_D_FILE"
+}
+
+acme_auto_renew_active() {
+    if command -v crontab >/dev/null 2>&1; then
+        crontab -l 2>/dev/null | grep -qF "$ACME_RENEW_HOOK" && return 0
+    fi
+    [[ -f "$ACME_CRON_D_FILE" ]] && grep -qF "$ACME_RENEW_HOOK" "$ACME_CRON_D_FILE" && return 0
+    return 1
+}
+
+# --renew-cert: refresh the live file-backed certificate in place.
+#   acme    -> acme.sh --renew for the recorded domain, then reload the Portal
+#   openssl -> re-self-sign with the default validity (the pin changes, so the
+#              share URI has to be redistributed)
+#   program -> nothing to do, the binary mints a new certificate on every start
+renew_cert_action() {
+    if [[ ! -f "$URL_FILE" ]]; then
+        log_error "$(t err_not_configured)"
+        return 1
+    fi
+    local run_url cert_mode host
+    run_url=$(tr -d '\n' < "$URL_FILE")
+    if [[ "$(detect_url_role "$run_url")" != "portal" ]]; then
+        log_error "$(t err_renew_not_portal)"
+        return 1
+    fi
+    cert_mode=$(detect_cert_mode "$run_url")
+    host=$(load_share_host)
+    case "$cert_mode" in
+        acme)
+            local domain
+            domain=$(load_cert_mode_field domain)
+            if [[ -z "$domain" ]]; then
+                log_error "$(t err_acme_domain_missing)"
+                return 1
+            fi
+            if [[ ! -x "$ACME_BIN" ]]; then
+                log_error "$(t err_acme_not_installed)"
+                return 1
+            fi
+            acme_paths "$domain" >/dev/null
+            if ! acme_renew_cert "$domain"; then
+                log_error "$(t err_acme_renew_failed "$domain")"
+                return 1
+            fi
+            log_success "$(t ok_acme_renew "$domain" "$ACME_CRT")"
+            ;;
+        openssl)
+            if ! ensure_openssl; then
+                log_error "$(t err_openssl_missing)"
+                return 1
+            fi
+            local san pin cn
+            san=$(default_cert_san "$host")
+            san=$(normalize_cert_san "$san") || san=$(default_cert_san "$host") || {
+                log_error "$(t err_self_sign_failed)"
+                return 1
+            }
+            case "$host" in
+                ""|*:*) cn="nowhere-self-signed" ;;
+                *)      cn="$host" ;;
+            esac
+            if ! pin=$(openssl_self_sign "$DEFAULT_CERT" "$DEFAULT_KEYFILE" \
+                        "$SELF_SIGN_DAYS_DEFAULT" "$san" "$cn"); then
+                log_error "$(t err_self_sign_failed)"
+                return 1
+            fi
+            save_pin "$pin"
+            log_success "$(t ok_self_signed "$DEFAULT_CERT" "$DEFAULT_KEYFILE" \
+                "$SELF_SIGN_DAYS_DEFAULT" "$pin")"
+            log_warn "$(t warn_pin_changes)"
+            ;;
+        *)
+            log_info "$(t info_renew_not_needed "$cert_mode")"
+            return 0
+            ;;
+    esac
+    if service_is_active; then
+        restart_service
+    fi
+    return 0
+}
+
+# Shared certificate resolution for the install flows. Prompts for what it
+# needs, writes files for the openssl mode, and reports through CERT_* globals
+# so callers keep a single build_portal_url call.
+#   in : $1 cert_mode, $2 host, $3 skip_prompts(true/false)
+#   out: CERT_TLS, CERT_CRT, CERT_KEYFILE, CERT_PIN (empty when not applicable)
+resolve_cert_mode() {
+    local mode="$1" host="$2" skip="$3"
+    CERT_TLS="1"; CERT_CRT="$DEFAULT_CERT"; CERT_KEYFILE="$DEFAULT_KEYFILE"; CERT_PIN=""
+
+    case "$mode" in
+        program)
+            clear_pin
+            ;;
+        custom)
+            if [[ "$skip" == true ]]; then
+                CERT_CRT="${ARG_CERT:-$DEFAULT_CERT}"
+                CERT_KEYFILE="${ARG_KEYFILE:-$DEFAULT_KEYFILE}"
+            else
+                local crt_input keyfile_input
+                read -rp "$(t prompt_cert "$DEFAULT_CERT")" crt_input
+                [[ -n "$crt_input" ]] && CERT_CRT="$crt_input"
+                read -rp "$(t prompt_keyfile "$DEFAULT_KEYFILE")" keyfile_input
+                [[ -n "$keyfile_input" ]] && CERT_KEYFILE="$keyfile_input"
+            fi
+            clear_pin
+            CERT_TLS="2"
+            ;;
+        openssl)
+            if ! ensure_openssl; then
+                log_error "$(t err_openssl_missing)"
+                return 1
+            fi
+            local days="$SELF_SIGN_DAYS_DEFAULT" san cn days_input san_input
+            san=$(default_cert_san "$host")
+            if [[ "$skip" == true ]]; then
+                days="${ARG_SELF_SIGN_DAYS:-$SELF_SIGN_DAYS_DEFAULT}"
+                [[ -n "$ARG_CERT_SAN" ]] && san="$ARG_CERT_SAN"
+            else
+                read -rp "$(t prompt_self_sign_days "$days")" days_input
+                [[ -n "$days_input" ]] && days="$days_input"
+                read -rp "$(t prompt_cert_san "$san")" san_input
+                [[ -n "$san_input" ]] && san="$san_input"
+            fi
+            san=$(normalize_cert_san "$san") || san=$(default_cert_san "$host") || {
+                log_error "$(t err_self_sign_failed)"
+                return 1
+            }
+            # An IPv6 literal cannot be a CN; fall back to a fixed subject.
+            case "$host" in
+                ""|*:*) cn="nowhere-self-signed" ;;
+                *)      cn="$host" ;;
+            esac
+            if ! CERT_PIN=$(openssl_self_sign "$DEFAULT_CERT" "$DEFAULT_KEYFILE" "$days" "$san" "$cn"); then
+                log_error "$(t err_self_sign_failed)"
+                return 1
+            fi
+            save_pin "$CERT_PIN"
+            CERT_CRT="$DEFAULT_CERT"
+            CERT_KEYFILE="$DEFAULT_KEYFILE"
+            CERT_TLS="2"
+            log_success "$(t ok_self_signed "$DEFAULT_CERT" "$DEFAULT_KEYFILE" "$days" "$CERT_PIN")"
+            ;;
+        acme)
+            # --acme-domain wins; otherwise the share host is the domain the
+            # certificate is for, which is what an operator almost always means.
+            local domain="$ARG_ACME_DOMAIN" email="$ARG_ACME_EMAIL"
+            local challenge="$ARG_ACME_CHALLENGE" dns="$ARG_ACME_DNS"
+            local autorenew="$ARG_ACME_AUTO_RENEW"
+            # A previous acme install already chose a window; keep it unless this
+            # run says otherwise, so re-configuring does not silently reset it.
+            local renew_days
+            renew_days=$(load_cert_mode_field renewdays)
+            [[ -z "$renew_days" ]] && renew_days="$ACME_RENEW_DAYS"
+            [[ "$skip" == true ]] && [[ -n "$ARG_ACME_RENEW_DAYS" ]] && \
+                renew_days="$ARG_ACME_RENEW_DAYS"
+            [[ -z "$domain" ]] && domain="$host"
+            if [[ "$skip" != true ]]; then
+                local domain_input email_input challenge_input dns_input renew_input days_input
+                read -rp "$(t prompt_acme_domain "$domain")" domain_input
+                [[ -n "$domain_input" ]] && domain="$domain_input"
+                read -rp "$(t prompt_acme_email)" email_input
+                [[ -n "$email_input" ]] && email="$email_input"
+                read -rp "$(t prompt_acme_challenge "http")" challenge_input
+                [[ -n "$challenge_input" ]] && challenge="$challenge_input"
+                if [[ "$challenge" == "dns" ]]; then
+                    read -rp "$(t prompt_acme_dns)" dns_input
+                    [[ -n "$dns_input" ]] && dns="$dns_input"
+                fi
+                read -rp "$(t prompt_acme_auto_renew "yes")" renew_input
+                [[ -n "$renew_input" ]] && autorenew="$renew_input"
+                read -rp "$(t prompt_acme_renew_days "$renew_days")" days_input
+                [[ -n "$days_input" ]] && renew_days="$days_input"
+            fi
+            if ! acme_valid_domain "$domain"; then
+                log_error "$(t err_acme_domain_invalid "$domain")"
+                return 1
+            fi
+            [[ "$challenge" == "dns" ]] && [[ -z "$dns" ]] && {
+                log_error "$(t err_acme_dns_missing)"
+                return 1
+            }
+            case "$autorenew" in
+                yes|no) ;;
+                *) log_error "$(t err_acme_auto_renew_invalid "$autorenew")"; return 1 ;;
+            esac
+            if [[ ! "$renew_days" =~ ^[0-9]+$ ]] || \
+               (( renew_days < 1 || renew_days > 89 )); then
+                log_error "$(t err_acme_renew_days_invalid "$renew_days")"
+                return 1
+            fi
+            if [[ "$challenge" != "dns" ]]; then
+                # standalone binds port 80 itself; anything already listening on
+                # it makes validation fail with an opaque acme.sh error, so say
+                # it plainly and point at the DNS escape hatch.
+                if port_in_use "$ACME_HTTP_PORT"; then
+                    log_error "$(t err_acme_port_busy "$ACME_HTTP_PORT")"
+                    return 1
+                fi
+                if ! ensure_standalone_tool; then
+                    log_error "$(t err_acme_standalone_missing)"
+                    return 1
+                fi
+            fi
+            if ! ensure_acme "$email"; then
+                log_error "$(t err_acme_install_failed)"
+                return 1
+            fi
+            acme_paths "$domain" >/dev/null
+            if [[ ! -f "$ACME_CRT" || ! -f "$ACME_KEY" ]]; then
+                if ! acme_issue_cert "$domain" "$email" "$challenge" "$dns"; then
+                    log_error "$(t err_acme_issue_failed "$domain")"
+                    return 1
+                fi
+            elif acme_renew_due "$ACME_CRT" "$renew_days"; then
+                if ! acme_renew_cert "$domain"; then
+                    # A failed renewal of a still-valid certificate is not fatal:
+                    # keep serving the existing one and let cron retry later.
+                    log_warn "$(t warn_acme_renew_failed "$domain")"
+                fi
+            else
+                # Outside the window the live chain is kept as-is. Renewing here
+                # would burn a duplicate-certificate allowance for nothing.
+                log_info "$(t info_acme_cert_kept "$domain" \
+                    "$(cert_not_after "$ACME_CRT")" "$renew_days")"
+            fi
+            write_acme_reload_hook
+            write_acme_renew_hook "$domain" "$renew_days"
+            if [[ "$autorenew" == "yes" ]]; then
+                if ! install_acme_auto_renew; then
+                    log_warn "$(t warn_acme_cron_unavailable)"
+                else
+                    log_info "$(t info_acme_cron_installed "$ACME_CRON_SCHEDULE" "$renew_days")"
+                fi
+            else
+                remove_acme_auto_renew
+            fi
+            save_cert_mode acme "$domain" "$autorenew" "$renew_days"
+            clear_pin
+            CERT_CRT="$ACME_CRT"
+            CERT_KEYFILE="$ACME_KEY"
+            CERT_TLS="2"
+            log_success "$(t ok_acme_cert "$domain" "$ACME_CRT" "$ACME_KEY")"
+            ;;
+        *)
+            log_error "$(t err_cert_mode_invalid "$mode")"
+            return 1
+            ;;
+    esac
+    return 0
 }
 
 url_encode_name() {
@@ -3371,13 +4283,16 @@ uninstall_nowhere() {
 
     stop_service
     disable_service
+    remove_acme_auto_renew
 
     rm -f "${INSTALL_DIR}/nowhere"
     rm -f "$LAUNCHER"
 
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-        rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-        systemctl daemon-reload 2>/dev/null || true
+        rm -f "$SYSTEMD_UNIT_FILE"
+        if [[ "$SYSTEMD_UNIT_FILE" == "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
+            systemctl daemon-reload 2>/dev/null || true
+        fi
     elif [[ "$INIT_SYSTEM" == "openrc" ]]; then
         rm -f "/etc/init.d/${SERVICE_NAME}"
         rc-update delete ${SERVICE_NAME} default 2>/dev/null || true
@@ -3460,7 +4375,7 @@ EOF
 install_systemd_service() {
     local desc
     desc=$(get_service_description)
-    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+    cat > "$SYSTEMD_UNIT_FILE" <<EOF
 [Unit]
 Description=${desc}
 Documentation=https://github.com/${GITHUB_REPO}
@@ -3479,8 +4394,12 @@ SyslogIdentifier=nowhere
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload
-    systemctl enable ${SERVICE_NAME}
+    # daemon-reload/enable only make sense for the real unit path; a redirected
+    # one is a test artifact and must not reach the host's systemd.
+    if [[ "$SYSTEMD_UNIT_FILE" == "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
+        systemctl daemon-reload
+        systemctl enable ${SERVICE_NAME}
+    fi
 }
 
 install_openrc_service() {
@@ -3832,6 +4751,7 @@ configure_nowhere() {
     local default_mux="0" default_sni="" default_pin="" default_morph=""
     local default_tcp_port="" default_udp_port=""
     local default_outbound="direct"
+    local default_cert_mode="$CERT_MODE_DEFAULT"
     local morph_default="0"
     is_nw3_profile && morph_default="1"
     default_key=$(generate_random_key)
@@ -3885,11 +4805,14 @@ configure_nowhere() {
                 *) default_outbound="socks"; default_socks="$existing_out" ;;
             esac
             default_morph=$(get_query_param "$existing_url" "morph")
+            default_tls=$(get_query_param "$existing_url" "tls"); default_tls=${default_tls:-1}
+            default_cert_mode=$(detect_cert_mode "$existing_url")
         else
             local existing_net
             existing_net=$(get_query_param "$existing_url" "net")
             default_net="${existing_net:-${PARSE_CARRIERS:-mix}}"
             default_tls=$(get_query_param "$existing_url" "tls"); default_tls=${default_tls:-1}
+            default_cert_mode=$(detect_cert_mode "$existing_url")
             load_portal_outbound_from_url "$existing_url"
             default_socks="$PORTAL_SOCKS"
             default_next="$PORTAL_NEXT"
@@ -3924,6 +4847,17 @@ configure_nowhere() {
     [[ -n "$ARG_TCP_PORT" ]] && default_tcp_port="$ARG_TCP_PORT"
     [[ -n "$ARG_UDP_PORT" ]] && default_udp_port="$ARG_UDP_PORT"
     [[ -n "$ARG_OUT" ]] && default_outbound="$ARG_OUT"
+    if [[ -n "$ARG_CERT_MODE" ]]; then
+        if ! default_cert_mode=$(normalize_cert_mode "$ARG_CERT_MODE"); then
+            log_error "$(t err_cert_mode_invalid "$ARG_CERT_MODE")"
+            return 1
+        fi
+    fi
+    # --acme-domain is shorthand for --cert-mode acme; the explicit flag wins if
+    # both are given, so the two never disagree.
+    if [[ -n "$ARG_ACME_DOMAIN" && -z "$ARG_CERT_MODE" ]]; then
+        default_cert_mode="acme"
+    fi
     # On nw3, --socks is the compatibility alias for out=<SOCKS5 upstream>.
     if is_nw3_profile && [[ -z "$ARG_OUT" && -n "$ARG_SOCKS" ]]; then
         default_outbound="socks"
@@ -3938,7 +4872,9 @@ configure_nowhere() {
     local mux="$default_mux" sni="$default_sni" pin="$default_pin"
     local morph="$default_morph" tcp_port="$default_tcp_port" udp_port="$default_udp_port"
     local outbound="$default_outbound"
-    local cli_overrides="$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_OUT"
+    local cert_mode="$default_cert_mode"
+    local crt="$DEFAULT_CERT" keyfile="$DEFAULT_KEYFILE"
+    local cli_overrides="$ARG_SOCKS$ARG_NEXT$ARG_UP$ARG_DOWN$ARG_MUX$ARG_SNI$ARG_PIN$ARG_ALPN$ARG_HOST$ARG_PORT$ARG_NET$ARG_TLS$ARG_MORPH$ARG_TCP_PORT$ARG_UDP_PORT$ARG_OUT$ARG_CERT_MODE$ARG_CERT$ARG_KEYFILE$ARG_ACME_DOMAIN"
 
     if [[ "$skip_prompts" == true ]]; then
         key="${ARG_KEY:-$default_key}"
@@ -4055,6 +4991,9 @@ configure_nowhere() {
                 ia=$(get_query_param "$IMPORTED_URL" "alpn")
                 [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
                 [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
+                # An imported URL carries no certificate source; recover it from
+                # what is on disk so the openssl pin survives a re-configure.
+                cert_mode=$(detect_cert_mode "$IMPORTED_URL")
             fi
         fi
     fi
@@ -4258,6 +5197,20 @@ configure_nowhere() {
                 udp_port="$OUT_UDP_PORT"
             fi
 
+            read -rp "$(t prompt_cert_mode "$cert_mode")" cert_mode_input
+            [[ -n "$cert_mode_input" ]] && cert_mode="$cert_mode_input"
+            if ! cert_mode=$(normalize_cert_mode "$cert_mode"); then
+                log_error "$(t err_cert_mode_invalid "$cert_mode_input")"
+                return 1
+            fi
+            case "$cert_mode" in
+                program) log_info "$(t info_cert_mode_program)" ;;
+                openssl) log_info "$(t info_cert_mode_openssl)" ;;
+                custom)  log_info "$(t info_cert_mode_custom)" ;;
+                acme)    log_info "$(t info_cert_mode_acme)" ;;
+            esac
+            tls=$(cert_mode_tls "$cert_mode")
+
             read -rp "$(t prompt_tls "$tls")" tls_input
             [[ -n "$tls_input" ]] && tls="$tls_input"
 
@@ -4301,21 +5254,13 @@ configure_nowhere() {
             return 1
         fi
 
-        local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
-        if [[ "$tls" == "2" ]]; then
-            local default_crt="/etc/nowhere/cert.pem" default_keyfile="/etc/nowhere/key.pem"
-            crt="$default_crt"
-            keyfile="$default_keyfile"
-            if [[ "$skip_prompts" == true ]]; then
-                crt="${ARG_CERT:-$default_crt}"
-                keyfile="${ARG_KEYFILE:-$default_keyfile}"
-            else
-                read -rp "$(t prompt_cert "$default_crt")" crt_input
-                [[ -n "$crt_input" ]] && crt="$crt_input"
-                read -rp "$(t prompt_keyfile "$default_keyfile")" keyfile_input
-                [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
-            fi
+        # The certificate source decides tls=; the tls= prompt above is a
+        # read-only echo of that decision (kept for backward compatibility).
+        tls=$(cert_mode_tls "$cert_mode")
+        if ! resolve_cert_mode "$cert_mode" "$host" "$skip_prompts"; then
+            return 1
         fi
+        tls="$CERT_TLS"; crt="$CERT_CRT"; keyfile="$CERT_KEYFILE"
 
         url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$outbound") || return 1
     fi
@@ -4372,8 +5317,10 @@ mf_build_fields() {
         mf_add_field mf_udp_port udp_port prompt_udp_port
     fi
     if [[ "$role" == "portal" ]]; then
-        mf_add_field mf_tls tls prompt_tls
-        if [[ "$tls" == "2" ]]; then
+        # The certificate source replaces the raw tls= question: tls= follows
+        # from it, so only the source is editable here.
+        mf_add_field mf_cert_mode cert_mode prompt_cert_mode
+        if [[ "$cert_mode" == "custom" ]]; then
             mf_add_field mf_cert crt prompt_cert
             mf_add_field mf_keyfile keyfile prompt_keyfile
         fi
@@ -4440,6 +5387,11 @@ mf_display_value() {
         fi
         return
     fi
+    if [[ "$vname" == "cert_mode" ]]; then
+        # tls= is derived from the source, so show both for context.
+        printf '%s (tls=%s)' "${!vname}" "$(cert_mode_tls "${!vname}")"
+        return
+    fi
     local val="${!vname}"
     if [[ -n "$val" ]]; then
         printf '%s' "$val"
@@ -4457,6 +5409,19 @@ mf_edit_field() {
         current="${!vname}"
     fi
     case "$vname" in
+        cert_mode)
+            read -rp "$(t prompt_cert_mode "${current:-$CERT_MODE_DEFAULT}")" input
+            [[ -z "$input" ]] && return 0
+            if ! cert_mode=$(normalize_cert_mode "$input"); then
+                log_error "$(t err_cert_mode_invalid "$input")"
+                return 1
+            fi
+            tls=$(cert_mode_tls "$cert_mode")
+            if ! resolve_cert_mode "$cert_mode" "$host" false; then
+                return 1
+            fi
+            tls="$CERT_TLS"; crt="$CERT_CRT"; keyfile="$CERT_KEYFILE"
+            ;;
         outbound)
             if is_nw3_profile; then
                 # nw3 Portal exit: direct / SOCKS5 upstream / Egress, stored in out=.
@@ -4606,7 +5571,12 @@ mf_edit_field() {
             ;;
         crt|keyfile)
             read -rp "$(t "$prompt_key" "$current")" input
-            [[ -n "$input" ]] && printf -v "$vname" '%s' "$input"
+            if [[ -n "$input" ]]; then
+                printf -v "$vname" '%s' "$input"
+                # Taking over the certificate files drops the openssl pin: the
+                # share URI falls back to sni= verification.
+                clear_pin
+            fi
             ;;
         host)
             read -rp "$(t "$prompt_key" "$current")" input
@@ -4656,7 +5626,8 @@ modify_configuration() {
     local net="mix" tls="1" alpn="" socks="" next="" outbound="direct"
     local up="$dc" down="$dc" mux="0" sni="" pin="" morph=""
     local tcp_port="" udp_port=""
-    local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+    local crt="$DEFAULT_CERT" keyfile="$DEFAULT_KEYFILE"
+    local cert_mode="$CERT_MODE_DEFAULT"
     local morph_default="0"
     is_nw3_profile && morph_default="1"
     if url_has_carrier_path "$url"; then
@@ -4715,8 +5686,9 @@ modify_configuration() {
             pin="$PORTAL_PIN"
         fi
         morph=$(get_query_param "$url" "morph")
-        crt=$(get_query_param "$url" "crt"); crt="${crt:-/etc/nowhere/cert.pem}"
-        keyfile=$(get_query_param "$url" "key"); keyfile="${keyfile:-/etc/nowhere/key.pem}"
+        crt=$(get_query_param "$url" "crt"); crt="${crt:-$DEFAULT_CERT}"
+        keyfile=$(get_query_param "$url" "key"); keyfile="${keyfile:-$DEFAULT_KEYFILE}"
+        cert_mode=$(detect_cert_mode "$url")
     fi
     local existing_alpn
     existing_alpn=$(get_query_param "$url" "alpn")
@@ -5006,12 +5978,12 @@ auto_install_nowhere() {
                 ia=$(get_query_param "$url" "alpn")
                 [[ -n "$ia" ]] && alpn=$(url_decode_simple "$ia")
                 [[ -n "$ARG_ALPN" ]] && alpn="$ARG_ALPN"
-                local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
+                local crt="$DEFAULT_CERT" keyfile="$DEFAULT_KEYFILE"
                 if [[ "$tls" == "2" ]]; then
                     crt="${ARG_CERT:-$(get_query_param "$url" "crt")}"
-                    crt="${crt:-/etc/nowhere/cert.pem}"
+                    crt="${crt:-$DEFAULT_CERT}"
                     keyfile="${ARG_KEYFILE:-$(get_query_param "$url" "key")}"
-                    keyfile="${keyfile:-/etc/nowhere/key.pem}"
+                    keyfile="${keyfile:-$DEFAULT_KEYFILE}"
                 fi
                 local socks next up down mux sni pin net outbound
                 if is_nw3_profile; then
@@ -5089,6 +6061,17 @@ auto_install_nowhere() {
     alpn=${ARG_ALPN:-$DEFAULT_ALPN}
     net=${ARG_NET:-mix}
     tls=${ARG_TLS:-1}
+    local cert_mode="$CERT_MODE_DEFAULT"
+    if [[ -n "$ARG_CERT_MODE" ]]; then
+        if ! cert_mode=$(normalize_cert_mode "$ARG_CERT_MODE"); then
+            log_error "$(t err_cert_mode_invalid "$ARG_CERT_MODE")"
+            return 1
+        fi
+    fi
+    # --acme-domain is shorthand for --cert-mode acme.
+    if [[ -n "$ARG_ACME_DOMAIN" && -z "$ARG_CERT_MODE" ]]; then
+        cert_mode="acme"
+    fi
     host=${ARG_HOST:-}
     name=$(load_node_name)
     socks=${ARG_SOCKS:-}
@@ -5278,6 +6261,20 @@ auto_install_nowhere() {
                 udp_port="$OUT_UDP_PORT"
             fi
 
+            read -rp "$(t prompt_cert_mode "$cert_mode")" cert_mode_input
+            [[ -n "$cert_mode_input" ]] && cert_mode="$cert_mode_input"
+            if ! cert_mode=$(normalize_cert_mode "$cert_mode"); then
+                log_error "$(t err_cert_mode_invalid "$cert_mode_input")"
+                return 1
+            fi
+            case "$cert_mode" in
+                program) log_info "$(t info_cert_mode_program)" ;;
+                openssl) log_info "$(t info_cert_mode_openssl)" ;;
+                custom)  log_info "$(t info_cert_mode_custom)" ;;
+                acme)    log_info "$(t info_cert_mode_acme)" ;;
+            esac
+            tls=$(cert_mode_tls "$cert_mode")
+
             read -rp "$(t prompt_tls "$tls")" tls_input
             [[ -n "$tls_input" ]] && tls="$tls_input"
 
@@ -5322,17 +6319,15 @@ auto_install_nowhere() {
             return 1
         fi
 
-        local crt="/etc/nowhere/cert.pem" keyfile="/etc/nowhere/key.pem"
-        if [[ "$tls" == "2" ]]; then
-            crt=${ARG_CERT:-/etc/nowhere/cert.pem}
-            keyfile=${ARG_KEYFILE:-/etc/nowhere/key.pem}
-            if [[ -t 0 && -z "$ARG_CERT" ]]; then
-                read -rp "$(t prompt_cert "$crt")" crt_input
-                [[ -n "$crt_input" ]] && crt="$crt_input"
-                read -rp "$(t prompt_keyfile "$keyfile")" keyfile_input
-                [[ -n "$keyfile_input" ]] && keyfile="$keyfile_input"
-            fi
+        # The certificate source decides tls=; the tls= prompt above is a
+        # read-only echo of that decision (kept for backward compatibility).
+        tls=$(cert_mode_tls "$cert_mode")
+        local interactive=false
+        [[ -t 0 ]] && interactive=true
+        if ! resolve_cert_mode "$cert_mode" "$host" "$([[ $interactive == true ]] && echo false || echo true)"; then
+            return 1
         fi
+        tls="$CERT_TLS"; crt="$CERT_CRT"; keyfile="$CERT_KEYFILE"
 
         url=$(build_portal_url "$key" "$port" "$tls" "$net" "$alpn" "$crt" "$keyfile" "$socks" "$next" "$up" "$down" "$mux" "$sni" "$pin" "$morph" "$tcp_port" "$udp_port" "$outbound") || return 1
     fi
@@ -5377,18 +6372,27 @@ show_share_uri_nw3() {
     node_name=$(load_node_name)
     [[ -n "$node_name" ]] && frag="#$(url_encode_name "$node_name")"
 
-    local sni_param=""
+    # tls=2 splits two ways: an openssl self-signed Portal is pinned (the client
+    # verifies the exact certificate and ignores the hostname), while a custom
+    # certificate is verified through sni= against the system trust store.
+    local sni_param="" pin_param=""
     if [[ "$tls_mode" == "2" ]]; then
-        local stored_host
-        stored_host=$(load_share_host)
-        if [[ -n "$stored_host" ]]; then
-            sni_param="&sni=${stored_host}"
+        local stored_pin
+        stored_pin=$(load_pin)
+        if [[ -n "$stored_pin" ]]; then
+            pin_param="&pin=${stored_pin}"
+            fingerprint="$stored_pin"
         else
-            log_warn "$(t warn_sni_missing)"
+            local stored_host
+            stored_host=$(load_share_host)
+            if [[ -n "$stored_host" ]]; then
+                sni_param="&sni=${stored_host}"
+            else
+                log_warn "$(t warn_sni_missing)"
+            fi
         fi
     fi
 
-    local fingerprint=""
     if [[ "$tls_mode" == "1" && -n "$tcp_port" ]]; then
         local probe_url="nowhere://${key}@127.0.0.1:${tcp_port}?net=tcp"
         [[ -n "$morph_mode" ]] && probe_url="${probe_url}&morph=${morph_mode}"
@@ -5399,18 +6403,18 @@ show_share_uri_nw3() {
     if [[ -n "$tcp_port" ]]; then
         link="nowhere://${key}@${share_host}:${tcp_port}?net=tcp"
         [[ -n "$morph_mode" ]] && link="${link}&morph=${morph_mode}"
-        link="${link}${sni_param}"
-        [[ -n "$fingerprint" ]] && link="${link}&pin=${fingerprint}"
+        link="${link}${sni_param}${pin_param}"
+        [[ -n "$fingerprint" && -z "$pin_param" ]] && link="${link}&pin=${fingerprint}"
         tcp_link="${link}${frag}"
         qr_link="$tcp_link"
     fi
     if [[ -n "$udp_port" ]]; then
         link="nowhere://${key}@${share_host}:${udp_port}?net=udp"
         [[ -n "$morph_mode" ]] && link="${link}&morph=${morph_mode}"
-        link="${link}${sni_param}"
-        [[ -n "$fingerprint" ]] && link="${link}&pin=${fingerprint}"
+        link="${link}${sni_param}${pin_param}"
+        [[ -n "$fingerprint" && -z "$pin_param" ]] && link="${link}&pin=${fingerprint}"
         udp_link="${link}${frag}"
-        [[ -n "$qr_link" ]] || qr_link="$udp_link"
+        [[ -z "$qr_link" ]] || qr_link="$udp_link"
     fi
 
     echo -e "\n${CYAN}$(t share_title)${NC}"
@@ -5442,6 +6446,11 @@ show_share_uri_nw3() {
         else
             log_warn "$(t warn_pin_required)"
             log_warn "$(t warn_pin_unavailable)"
+        fi
+    elif [[ "$tls_mode" == "2" && -z "$pin_param" ]]; then
+        # Custom certificate without a share host: clients cannot verify it.
+        if [[ -z "$(load_share_host)" ]]; then
+            log_warn "$(t warn_sni_missing)"
         fi
     fi
 
@@ -5535,7 +6544,15 @@ show_share_uri() {
         client_uri=$(append_query_param "$client_uri" "morph=1")
     fi
 
-    if [[ "$tls_mode" == "2" ]]; then
+    # tls=2 splits two ways: an openssl self-signed Portal is pinned (the client
+    # verifies the exact certificate and ignores the hostname), while a custom
+    # certificate is verified through sni= against the system trust store.
+    local stored_pin=""
+    stored_pin=$(load_pin)
+    if [[ "$tls_mode" == "2" && -n "$stored_pin" ]]; then
+        client_uri=$(append_query_param "$client_uri" "pin=${stored_pin}")
+        fingerprint="$stored_pin"
+    elif [[ "$tls_mode" == "2" ]]; then
         local stored_host
         stored_host=$(load_share_host)
         if [[ -n "$stored_host" ]]; then
@@ -5555,7 +6572,8 @@ show_share_uri() {
 
     # Nowhere 2.2+ verifies Portal certificates by default: a self-signed Portal
     # (tls=1) requires pin= in the client URL. Embed the fingerprint when the
-    # running service can provide it.
+    # running service can provide it. An openssl self-signed Portal (tls=2)
+    # already carries its stable pin above.
     local fingerprint=""
     local probe_tcp_port="${PARSE_TCP_PORT}"
     if [[ -z "$probe_tcp_port" ]] && ! url_has_carrier_path "$server_url" && [[ -n "$PARSE_PORT" ]]; then
@@ -5690,7 +6708,7 @@ show_status() {
     echo -e "$(t label_system "${GREEN}${OS_ID}" "${OS_VERSION_ID}${NC}")"
     echo -e "$(t label_arch_libc "${GREEN}${ARCH}" "${LIBC}${NC}")"
     if [[ -f "$URL_FILE" ]]; then
-        local run_url role socks_val next_val
+        local run_url role socks_val next_val cert_mode crt_path tls_mode
         run_url=$(tr -d '\n' < "$URL_FILE")
         role=$(detect_url_role "$run_url")
         role="${role:-unknown}"
@@ -5699,6 +6717,53 @@ show_status() {
         echo -e "$(t label_role "${GREEN}${role}${NC}")"
         echo -e "$(t label_config_file "${GREEN}${URL_FILE}${NC}")"
         echo -e "$(t label_run_url_status "${GREEN}${run_url}${NC}")"
+        if [[ "$role" == "portal" ]]; then
+            # Certificate source and, for a file-backed certificate, its expiry.
+            cert_mode=$(detect_cert_mode "$run_url")
+            tls_mode=$(get_query_param "$run_url" "tls"); tls_mode=${tls_mode:-1}
+            crt_path=$(get_query_param "$run_url" "crt")
+            if [[ -n "$crt_path" ]]; then
+                local cert_desc="$cert_mode"
+                if [[ -n "$(load_pin)" ]]; then
+                    cert_desc="${cert_mode} (pin $(load_pin | cut -c1-8)…)"
+                fi
+                echo -e "$(t label_cert_mode "${GREEN}${cert_desc}${NC}")"
+                if [[ "$cert_mode" == "acme" ]]; then
+                    local acme_domain acme_autorenew acme_renewdays
+                    acme_domain=$(load_cert_mode_field domain)
+                    acme_autorenew=$(load_cert_mode_field autorenew)
+                    acme_renewdays=$(load_cert_mode_field renewdays)
+                    [[ -n "$acme_domain" ]] && \
+                        echo -e "$(t label_acme_domain "${GREEN}${acme_domain}${NC}")"
+                    if [[ "$acme_autorenew" == "yes" ]]; then
+                        echo -e "$(t label_acme_renewal "${GREEN}$(t acme_renewal_on "$ACME_CRON_SCHEDULE" "$acme_renewdays")${NC}")"
+                    else
+                        echo -e "$(t label_acme_renewal "${YELLOW}$(t acme_renewal_off)${NC}")"
+                    fi
+                fi
+                if [[ -f "$crt_path" ]]; then
+                    local not_after days_left now_epoch end_epoch
+                    not_after=$(cert_not_after "$crt_path") || not_after=""
+                    if [[ -n "$not_after" ]]; then
+                        echo -e "$(t label_cert_expires "${GREEN}${not_after}${NC}")"
+                        now_epoch=$(date -u +%s)
+                        end_epoch=$(date -u -d "$not_after" +%s 2>/dev/null || echo "")
+                        if [[ -n "$end_epoch" ]]; then
+                            days_left=$(( (end_epoch - now_epoch) / 86400 ))
+                            if (( days_left < 0 )); then
+                                log_warn "$(t warn_cert_expired "$not_after")"
+                            elif (( days_left <= 30 )); then
+                                log_warn "$(t warn_cert_expiring "$days_left" "$not_after")"
+                            fi
+                        fi
+                    fi
+                else
+                    log_warn "$(t warn_cert_file_missing "$crt_path")"
+                fi
+            elif [[ "$tls_mode" == "1" ]]; then
+                echo -e "$(t label_cert_mode "${GREEN}${cert_mode}${NC}")"
+            fi
+        fi
         if is_nw3_profile; then
             # nw3 Portal exits via out=; nw3 Vector listens via in=.
             local nw3_out nw3_in
@@ -5849,6 +6914,7 @@ MENU_ACTIONS=(
     stop
     restart
     status
+    renew
     tui
     ""
     share
@@ -5893,6 +6959,7 @@ run_menu_action() {
         stop) stop_service; log_success "$(t ok_stop_sent)" ;;
         restart) restart_service; log_success "$(t ok_restart_sent)" ;;
         status) show_status ;;
+        renew) renew_cert_action ;;
         tui) launch_tui ;;
         share) show_share_uri ;;
         qr) install_qr_support ;;
@@ -6000,6 +7067,16 @@ $(t help_opt_net)
 $(t help_opt_tls)
 $(t help_opt_cert)
 $(t help_opt_keyfile)
+$(t help_opt_cert_mode)
+$(t help_opt_self_sign_days "$SELF_SIGN_DAYS_DEFAULT")
+$(t help_opt_cert_san)
+$(t help_opt_acme_domain)
+$(t help_opt_acme_email)
+$(t help_opt_acme_challenge)
+$(t help_opt_acme_dns)
+$(t help_opt_acme_auto_renew)
+$(t help_opt_acme_renew_days)
+$(t help_opt_renew_cert)
 $(t help_opt_socks)
 $(t help_opt_out)
 $(t help_opt_next)
@@ -6020,7 +7097,11 @@ $(t help_no_opt)
 
 $(t help_examples)
   bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --port 2088
-  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --tls 2 --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
+  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --cert-mode custom --cert /path/cert.pem --keyfile /path/key.pem --host relay.example
+  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --cert-mode openssl --self-sign-days 398 --host relay.example
+  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --acme-domain relay.example.com --acme-email me@example.com --host relay.example.com
+  bash oh-nowhere.sh --install --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --acme-domain relay.example.com --acme-dns dns_cf --host relay.example.com
+  bash oh-nowhere.sh --renew-cert
   bash oh-nowhere.sh --install --type vector --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --host relay.example --socks 127.0.0.1:1080
   bash oh-nowhere.sh --install --type vector --key a1b2c3d4e5f60718293a4b5c6d7e8f90 --host relay.example --up mix --down mix --socks 127.0.0.1:1080
   bash oh-nowhere.sh --install --tcp-port 2006 --udp-port 2017 --morph 1 --key a1b2c3d4e5f60718293a4b5c6d7e8f90
@@ -6146,6 +7227,67 @@ parse_args() {
             --tls)              ARG_TLS="$2"; shift ;;
             --cert)             ARG_CERT="$2"; shift ;;
             --keyfile)          ARG_KEYFILE="$2"; shift ;;
+            --cert-mode)
+                ARG_CERT_MODE="$2"
+                case "$ARG_CERT_MODE" in
+                    program|openssl|custom|acme|1|2|3|4) ;;
+                    *)
+                        log_error "$(t err_cert_mode_invalid "$ARG_CERT_MODE")"
+                        exit 1
+                        ;;
+                esac
+                shift
+                ;;
+            --self-sign-days)
+                ARG_SELF_SIGN_DAYS="$2"
+                if [[ ! "$ARG_SELF_SIGN_DAYS" =~ ^[0-9]+$ ]] || (( ARG_SELF_SIGN_DAYS < 1 || ARG_SELF_SIGN_DAYS > 36500 )); then
+                    log_error "$(t err_self_sign_failed)"
+                    exit 1
+                fi
+                shift
+                ;;
+            --cert-san)         ARG_CERT_SAN="$2"; shift ;;
+            --acme-domain)
+                ARG_ACME_DOMAIN="$2"
+                if ! acme_valid_domain "$ARG_ACME_DOMAIN"; then
+                    log_error "$(t err_acme_domain_invalid "$ARG_ACME_DOMAIN")"
+                    exit 1
+                fi
+                shift
+                ;;
+            --acme-email)       ARG_ACME_EMAIL="$2"; shift ;;
+            --acme-challenge)
+                ARG_ACME_CHALLENGE="$2"
+                case "$ARG_ACME_CHALLENGE" in
+                    http|dns) ;;
+                    *) log_error "$(t err_acme_challenge_invalid "$ARG_ACME_CHALLENGE")"; exit 1 ;;
+                esac
+                shift
+                ;;
+            --acme-dns)
+                ARG_ACME_CHALLENGE="dns"
+                ARG_ACME_DNS="$2"
+                [[ -z "$ARG_ACME_DNS" ]] && { log_error "$(t err_acme_dns_missing)"; exit 1; }
+                shift
+                ;;
+            --acme-auto-renew)
+                ARG_ACME_AUTO_RENEW="$2"
+                case "$ARG_ACME_AUTO_RENEW" in
+                    yes|no) ;;
+                    *) log_error "$(t err_acme_auto_renew_invalid "$ARG_ACME_AUTO_RENEW")"; exit 1 ;;
+                esac
+                shift
+                ;;
+            --acme-renew-days)
+                ARG_ACME_RENEW_DAYS="$2"
+                if [[ ! "$ARG_ACME_RENEW_DAYS" =~ ^[0-9]+$ ]] || \
+                   (( ARG_ACME_RENEW_DAYS < 1 || ARG_ACME_RENEW_DAYS > 89 )); then
+                    log_error "$(t err_acme_renew_days_invalid "$ARG_ACME_RENEW_DAYS")"
+                    exit 1
+                fi
+                shift
+                ;;
+            --renew-cert)       AUTO_MODE="renew" ;;
             -v|--version)       ARG_VERSION="$2"; shift ;;
             --script-version)
                 printf '%s\n' "$SCRIPT_VERSION"
@@ -6201,6 +7343,7 @@ main() {
         upgrade-script) upgrade_oh_nowhere_script ;;
         uninstall)  uninstall_nowhere ;;
         menu)       run_menu ;;
+        renew)      renew_cert_action ;;
     esac
 }
 

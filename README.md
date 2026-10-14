@@ -21,6 +21,7 @@ A one-click installation, upgrade, and management script for [Nowhere](https://g
 * x86_64 / aarch64; GNU libc or musl selected automatically on Linux
 * Portal, Vector, and the nw3 Egress role
 * Portal share URIs (`nowhere://`) and optional QR codes
+* Four Portal certificate sources: program self-signed, openssl self-signed, your own PEM files, or a real CA certificate through acme.sh with automatic renewal inside a 30-day window
 * Read-only TUI on 2.x; `nowhere status` on nw3
 * English, Chinese, and Russian script UI
 
@@ -84,7 +85,7 @@ The menu header shows the oh-nowhere script version, the installed Nowhere versi
 
 ## Default Install (Nowhere 3)
 
-A fresh install without `--version` uses nw3. If Nowhere is already installed, `--install` upgrades instead and follows the target-version rules in "Upgrade and Protocol-Line Switch" below. Portal, Vector, and Egress keys are exactly 32 lowercase hexadecimal characters (`nowhere generate-key` when the binary is available, otherwise `/dev/urandom`). `morph` defaults to `1` and is always written. `tls` accepts only `1` or `2`. Portal wildcard hosts are written as `*`.
+A fresh install without `--version` uses nw3. If Nowhere is already installed, `--install` upgrades instead and follows the target-version rules in "Upgrade and Protocol-Line Switch" below. Portal, Vector, and Egress keys are exactly 32 lowercase hexadecimal characters (`nowhere generate-key` when the binary is available, otherwise `/dev/urandom`). `morph` defaults to `1` and is always written. `tls` accepts only `1` or `2` and follows from the certificate-source choice (see "TLS Modes"). Portal wildcard hosts are written as `*`.
 
 The nw3 binary silently ignores parameters it does not know. The script checks them before writing. When the binary is already nw3 and a Portal or Vector `url.conf` still contains `up`, `down`, `mux`, `next`, `socks`, `net`, `alpn`, `log`, `pool`, or `spec`, the launcher refuses to start.
 
@@ -216,11 +217,20 @@ Configure (menu item 4) accepts `portal`, `vector`, or `egress`, or a pasted `no
 
 ## TLS Modes (Portal)
 
-The default is `tls=1` (self-signed). nw3 does not accept `tls=0`.
+Before TLS is chosen, the script asks for the certificate source. All four sources normalize to the `tls=1` or `tls=2` the binary accepts, so the Portal URL format never changes:
 
-Nowhere 2.2+ and nw3 verify certificates by default; clients cannot skip verification. When the fingerprint can be read, a self-signed Portal share URI includes `pin=<sha256>` (64 lowercase hex characters). The fingerprint comes from the service log (the systemd journal, or `/var/log/nowhere.log` on OpenRC / FreeBSD) or from `nowhere fingerprint`. A self-signed certificate is regenerated on every Portal restart, so send clients the new share URI afterwards. On 1.x, clients skip certificate verification instead.
+| Choice | `tls=` | Certificate | Client verification |
+| ------ | ------ | ----------- | ------------------- |
+| 1 program self-signed | `1` | minted by the binary, SAN fixed to `localhost` | `pin=` (changes on restart) |
+| 2 openssl self-signed | `2` | written by this script to `/etc/nowhere/cert.pem` + `key.pem` (ECDSA P-256, validity defaults to 398 days and is selectable) | `pin=` (stable across restarts) |
+| 3 custom certificate | `2` | your own PEM files via `--cert` / `--keyfile` | `sni=` (needs a public hostname) |
+| 4 acme.sh certificate | `2` | issued by a public CA through acme.sh, renewed by cron inside a 30-day window | `sni=` (needs a public hostname) |
 
-For a stable fingerprint on a long-lived public service, use `tls=2` with a real certificate and set `--host` so the share URI includes a matching `sni`:
+The default is `tls=1` (program self-signed). nw3 does not accept `tls=0`.
+
+Nowhere 2.2+ and nw3 verify certificates by default; clients cannot skip verification. When the fingerprint can be read, a self-signed Portal share URI includes `pin=<sha256>` (64 lowercase hex characters). A program self-signed certificate is regenerated on every Portal restart, so its pin changes with it and clients need the new share URI afterwards (the certificate itself does not expire; the pin is what moves). On 1.x, clients skip certificate verification instead.
+
+The openssl source keeps the certificate on disk, so the pin is stable across restarts and suits long-lived public services:
 
 ```bash
 sudo ./oh-nowhere.sh \
@@ -228,9 +238,8 @@ sudo ./oh-nowhere.sh \
   --type portal \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --tls 2 \
-  --cert /etc/nowhere/cert.pem \
-  --keyfile /etc/nowhere/key.pem \
+  --cert-mode openssl \
+  --self-sign-days 398 \
   --host relay.example \
   --lang en
 ```
@@ -239,16 +248,99 @@ sudo ./oh-nowhere.sh \
 portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem&out=direct&morph=1
 ```
 
+The pin is stored in `/etc/nowhere/pin.conf`. `--status` reports the certificate source, the pin prefix and the expiry date, and warns from 30 days before expiry. The certificate is produced by `openssl`, which the script installs when missing.
+
+For your own certificate use `--cert-mode custom` with `--cert` / `--keyfile`:
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --cert-mode custom \
+  --cert /etc/nowhere/cert.pem \
+  --keyfile /etc/nowhere/key.pem \
+  --host relay.example \
+  --lang en
+```
+
+### acme.sh certificate
+
+`--cert-mode acme` asks [acme.sh](https://github.com/acmesh-official/acme.sh) for a real CA-signed certificate, so clients verify it against the public chain exactly like a `custom` certificate: `tls=2`, no `pin=`, and `sni=` from `--host`. The domain must already resolve to this server.
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --cert-mode acme \
+  --acme-domain relay.example.com \
+  --acme-email me@example.com \
+  --host relay.example.com \
+  --lang en
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=2&crt=/etc/nowhere/acme/relay.example.com_ecc/fullchain.cer&key=/etc/nowhere/acme/relay.example.com_ecc/relay.example.com.key&out=direct&morph=1
+```
+
+`--acme-domain` alone implies `--cert-mode acme`; with it absent the domain defaults to the share host. The default challenge is `--acme-challenge http`, which runs in acme.sh's standalone mode: it binds port 80 itself for the few seconds of validation, so **port 80 must be free** at issue time and at every renewal, and `socat` (or `python3`) must be installed. The script checks both and installs `socat` when the package manager allows it. For a host where port 80 is taken, use a DNS plugin instead:
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --acme-domain relay.example.com \
+  --acme-dns dns_cf \
+  --host relay.example.com \
+  --lang en
+```
+
+`--acme-dns` implies `--acme-challenge dns`. The manager never touches DNS provider credentials — export them into acme.sh's own environment beforehand (see the [acme.sh DNS API docs](https://github.com/acmesh-official/acme.sh/wiki/dnsapi)).
+
+What the mode installs:
+
+| Path | Purpose |
+| ---- | ------- |
+| `~/.acme.sh/acme.sh` | acme.sh itself, installed on demand with `curl` |
+| `/etc/nowhere/acme/<domain>_ecc/` | the issued ECDSA P-256 chain and key |
+| `/etc/nowhere/acme-reload.sh` | the `--reloadcmd` hook; restarts the service after a renewal |
+| `/etc/nowhere/acme-renew.sh` | the cron entry; checks the expiry locally and runs `acme.sh --renew` only inside the renewal window, logging to `/etc/nowhere/acme-renew.log` |
+| `/etc/nowhere/certmode.conf` | sidecar recording `mode=` / `domain=` / `autorenew=` / `renewdays=`, because a `tls=2` URL alone cannot tell `acme` from `custom` |
+| `17 3 * * *` in root's crontab (or `/etc/cron.d/nowhere-acme`) | the daily check, marked `# oh-nowhere acme.sh auto-renew` |
+
+Auto-renew is on by default, but it is **not** a daily re-issue. The job wakes every day and reads the issued chain's `notAfter` with `openssl`; it only calls `acme.sh --renew` once the certificate is inside its renewal window — the last `--acme-renew-days` days of validity, 30 by default. A Let's Encrypt certificate lives 90 days, so with the default the renewal happens with about two months to spare and the rest of the cycle costs one local `openssl` call and no network traffic. Set `--acme-renew-days 14` to renew later, or a larger number to renew earlier.
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --acme-domain relay.example.com \
+  --acme-renew-days 14 \
+  --host relay.example.com \
+  --lang en
+```
+
+Re-configuring with `--cert-mode acme` keeps the window already recorded in `certmode.conf` unless you pass `--acme-renew-days` again, and outside the window it leaves the live chain alone rather than spending a duplicate-certificate allowance. `--acme-auto-renew no` skips the cron entry entirely and you renew by hand with `--renew-cert` (menu item `renew`), which forces `acme.sh --renew` and restarts the service. `--status` reports the source, the ACME domain, the schedule and the window. `--uninstall` removes the cron entry and both hooks.
+
+If acme.sh cannot issue the certificate — bad domain, busy port 80, no network — the install stops with an error and nothing is written. Fix the cause and re-run; the other three certificate sources are unaffected.
+
 ## Client Share URI
 
-Menu item 11 / `--share` prints one `nowhere://` link per Portal carrier. The QR code encodes the TCP link when one exists. A self-signed Portal (`tls=1`) includes `pin=` when the fingerprint is available:
+Menu item 11 / `--share` prints one `nowhere://` link per Portal carrier. The QR code encodes the TCP link when one exists. A self-signed Portal includes `pin=` when the fingerprint is available:
 
 ```text
 nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=tcp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
 nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=udp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
 ```
 
-With `tls=2` and a share host set, the link carries `sni` and does not depend on `pin`. What `pin=` means, and why it changes after a restart, is covered under "TLS Modes".
+`pin=` and `sni=` are mutually exclusive by certificate source: the openssl self-signed mode carries `pin=` (with a pin set the binary ignores the hostname, so no `sni=` is sent), while a custom certificate has no pin and relies on `--host` to put a matching `sni=` in the link. What `pin=` means, and why the program self-signed pin changes after a restart, is covered under "TLS Modes".
 
 * Host prefers `/etc/nowhere/host.conf` (or `--host`); otherwise the detected public IP
 * The node name is a percent-encoded `#fragment`; set it with `--name` (default `Nowhere-<country>-<first IP octet>`, stored in `/etc/nowhere/name.conf`)
@@ -262,7 +354,9 @@ With `tls=2` and a share host set, the link carries `sni` and does not depend on
 
 Menu item **5** edits the stored run URL field by field. Enter a field number to change that value, then press Enter or `q` to save and restart the service.
 
-On nw3 the fields include: key, ports, carrier (Vector has a single `tcp` or `udp`), TLS, `morph`, the Portal exit `out=` (`direct` / `socks` / `egress`), the SOCKS upstream, Vector `in=`, and for Egress the host / UDP port / SNI / pin, plus the share host and node name. Parameters the editor does not manage (`rate` / `etar` / `dial` / `log`) are kept as-is.
+On nw3 the fields include: key, ports, carrier (Vector has a single `tcp` or `udp`), certificate source, `morph`, the Portal exit `out=` (`direct` / `socks` / `egress`), the SOCKS upstream, Vector `in=`, and for Egress the host / UDP port / SNI / pin, plus the share host and node name. Parameters the editor does not manage (`rate` / `etar` / `dial` / `log`) are kept as-is.
+
+The certificate source field replaces the raw TLS field: choosing `openssl` re-issues the certificate on the spot (validity and SAN are editable) and updates the pin, `program` clears the pin, and `custom` lets you edit the `crt` / `keyfile` paths (changing a path clears the pin too). `acme` re-runs the whole acme.sh flow — domain, email, challenge and auto-renew are all prompted — and points `crt` / `keyfile` at the issued chain.
 
 Ports are checked against the local listener table (`ss` / `sockstat` / `netstat`). A port already in use warns and must be confirmed. Interactive install and configure run the same check.
 
@@ -323,9 +417,19 @@ sudo ./oh-nowhere.sh [options]
 | `--tcp-port <port>` | TLS/TCP port (Nowhere 2.0+; may differ from UDP) |
 | `--udp-port <port>` | QUIC/UDP port (Nowhere 2.0+; also the nw3 Egress port) |
 | `--morph <0\|1>` | Keyed TLS/QUIC wire mask (Nowhere 2.0+; default `0` and omitted on 2.x, default `1` and written on nw3) |
-| `--tls <1\|2>` | Portal TLS mode, default `1` (nw3 does not accept `0`) |
-| `--cert <path>` | Certificate path when `tls=2` |
-| `--keyfile <path>` | Private key path when `tls=2` |
+| `--tls <1\|2>` | Portal TLS mode, default `1` (nw3 does not accept `0`); derived from `--cert-mode`, `--tls` is a read-only echo |
+| `--cert-mode <program\|openssl\|custom\|acme>` | Certificate source: `program` (`tls=1`), `openssl` (`tls=2` + pin), `custom` (`tls=2` + `--cert`/`--keyfile`), `acme` (`tls=2` via acme.sh, no pin); `1` / `2` / `3` / `4` are also accepted |
+| `--self-sign-days <days>` | Validity of the openssl self-signed certificate, 1–36500, default `398` |
+| `--cert-san <CSV>` | SAN list for the openssl self-signed certificate, e.g. `DNS:relay.example,IP:203.0.113.10`; defaults to the share host, the public IP and loopback |
+| `--cert <path>` | Certificate path for the `custom` source |
+| `--keyfile <path>` | Private key path for the `custom` source |
+| `--acme-domain <fqdn>` | Domain for the acme.sh certificate; implies `--cert-mode acme`, defaults to `--host` |
+| `--acme-email <mail>` | acme.sh account email (optional, used for expiry notices) |
+| `--acme-challenge <http\|dns>` | ACME challenge type, default `http` (needs port 80 free); `dns` needs `--acme-dns` |
+| `--acme-dns <plugin>` | acme.sh DNS plugin, e.g. `dns_cf`; implies `--acme-challenge dns` |
+| `--acme-auto-renew <yes\|no>` | Auto-renew job for the acme.sh certificate, default `yes` |
+| `--acme-renew-days <n>` | Renew inside the last `n` days of validity, 1-89, default `30` |
+| `--renew-cert` | Renew the live certificate now (`acme` runs `acme.sh --renew`, `openssl` re-self-signs and changes the pin) |
 | `--socks <addr>` | Vector inbound SOCKS; on an nw3 Portal, alias for `--out socks` |
 | `--out <direct\|socks\|egress>` | Portal exit (nw3; default `direct`) |
 | `--next <key@host:port>` | Portal native upstream, 2.x only (mutually exclusive with `--socks`; rejected on nw3) |
@@ -376,6 +480,12 @@ Show the share URI:
 sudo ./oh-nowhere.sh --share --lang en
 ```
 
+Renew the certificate now (acme.sh or openssl sources):
+
+```bash
+sudo ./oh-nowhere.sh --renew-cert --lang en
+```
+
 Launch the TUI (2.x) or the status snapshot (nw3):
 
 ```bash
@@ -404,12 +514,16 @@ The script may create or manage:
 /etc/nowhere/url.conf
 /etc/nowhere/host.conf
 /etc/nowhere/name.conf
+/etc/nowhere/pin.conf
+/etc/nowhere/certmode.conf
 /etc/systemd/system/nowhere.service
 /etc/init.d/nowhere
 /usr/local/etc/rc.d/nowhere
 ```
 
-The run URL is `/etc/nowhere/url.conf`. The share host is `/etc/nowhere/host.conf`. The node name is `/etc/nowhere/name.conf`.
+The run URL is `/etc/nowhere/url.conf`. The share host is `/etc/nowhere/host.conf`. The node name is `/etc/nowhere/name.conf`. The openssl-mode pin is `/etc/nowhere/pin.conf`, and `certmode.conf` records which `tls=2` source is live (`program` needs no file, the binary mints its own certificate).
+
+With `--cert-mode acme` the script also keeps `acme/`, `acme-reload.sh`, `acme-renew.sh` and `acme-renew.log` under `/etc/nowhere/`, plus a marked entry in root's crontab or `/etc/cron.d/nowhere-acme`. See "TLS Modes" above.
 
 The launcher reads `url.conf` and execs Nowhere. A stored `nowhere://` URL becomes `vector://`: nw3 adds `in=127.0.0.1:1080`; older releases add `socks=`. If an nw3 binary still sees 2.x parameters on a Portal or Vector URL, the launcher exits with an error so those parameters are not silently ignored.
 
@@ -473,7 +587,7 @@ Debian / Ubuntu use `qrencode`; Alpine uses `python3` + `py3-qrcode`; FreeBSD us
 
 * Use a key the script generates. On nw3 every role uses exactly 32 lowercase hex characters; a 2.2 Portal uses 32–64. A Portal with a non-conforming key refuses to start.
 * Do not publish the Portal run URL.
-* For a long-lived public service use `tls=2`, a valid certificate, and `--host`. Self-signed mode requires distributing `pin=`, and the fingerprint changes on every Portal restart. See "TLS Modes".
+* For a long-lived public service use `--cert-mode openssl` (the pin is stable across restarts) or `--cert-mode custom` with a real certificate and `--host`. The program self-signed pin changes on every Portal restart. See "TLS Modes".
 * If a Vector inbound SOCKS listener is reachable beyond the host, add authentication and a network policy.
 * Review the script before running it in production.
 

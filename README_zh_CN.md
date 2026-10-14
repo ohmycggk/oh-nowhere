@@ -21,6 +21,7 @@
 * x86_64 / aarch64；Linux 自动选择 GNU libc 或 musl
 * Portal、Vector，以及 nw3 的 Egress
 * Portal 分享 URI（`nowhere://`）与可选二维码
+* 四种 Portal 证书来源：程序自签、openssl 自签、自有 PEM 文件，或经 acme.sh 申请公共 CA 证书并按 30 天窗口自动续期
 * 2.x 只读 TUI；nw3 改为 `nowhere status`
 * 脚本界面支持中文、英文、俄文
 
@@ -84,7 +85,7 @@ sudo ./oh-nowhere.sh --lang zh
 
 ## 默认安装（Nowhere 3）
 
-不带 `--version` 的全新安装使用 nw3。本机已经装有 Nowhere 时，`--install` 转入升级，并遵守下文「升级与跨线」的目标版本规则。三种角色的密钥都是恰好 32 位小写十六进制（优先 `nowhere generate-key`，否则取 `/dev/urandom`）。`morph` 默认为 `1`，并且总会写入 URL。`tls` 只接受 `1` 或 `2`。Portal 通配主机写成 `*`。
+不带 `--version` 的全新安装使用 nw3。本机已经装有 Nowhere 时，`--install` 转入升级，并遵守下文「升级与跨线」的目标版本规则。三种角色的密钥都是恰好 32 位小写十六进制（优先 `nowhere generate-key`，否则取 `/dev/urandom`）。`morph` 默认为 `1`，并且总会写入 URL。`tls` 只接受 `1` 或 `2`，由「证书来源」抉择得出（见「TLS 模式」）。Portal 通配主机写成 `*`。
 
 nw3 二进制会静默忽略不认识的参数。脚本在写入前校验。二进制已是 nw3，而 Portal 或 Vector 的 `url.conf` 仍含 `up`、`down`、`mux`、`next`、`socks`、`net`、`alpn`、`log`、`pool`、`spec` 时，启动器直接拒绝启动。
 
@@ -216,11 +217,20 @@ egress://a1b2c3d4e5f60718293a4b5c6d7e8f90@relay.example/udp:2077?morph=1
 
 ## TLS 模式（Portal）
 
-默认 `tls=1`（自签）。nw3 不接受 `tls=0`。
+选择 TLS 之前，脚本先问证书来源。四种来源都归一到二进制唯一接受的 `tls=1` 或 `tls=2`，Portal URL 格式不变：
 
-Nowhere 2.2+ 与 nw3 默认校验证书，客户端不能跳过。自签 Portal 的分享 URI 会在拿得到指纹时写入 `pin=<sha256>`（64 位小写十六进制）。指纹来自服务日志（systemd journal，或 OpenRC / FreeBSD 的 `/var/log/nowhere.log`），也可以用 `nowhere fingerprint`。自签证书每次 Portal 重启都会重新生成，重启后需要把新的分享 URI 发给客户端。1.x 客户端改为跳过证书校验。
+| 选择 | `tls=` | 证书 | 客户端校验 |
+| ---- | ------ | ---- | ---------- |
+| 1 程序自签 | `1` | 二进制自己生成，SAN 固定 `localhost` | `pin=`（重启后变） |
+| 2 openssl 自签 | `2` | 脚本用 `openssl` 生成 `/etc/nowhere/cert.pem` + `key.pem`（ECDSA P-256，有效期默认 398 天可自选） | `pin=`（跨重启稳定） |
+| 3 自定义证书 | `2` | 自己的 PEM 文件，`--cert` / `--keyfile` | `sni=`（需要公网主机名） |
+| 4 acme.sh 证书 | `2` | 通过 acme.sh 向公共 CA 申请，由 cron 在 30 天窗口内续期 | `sni=`（需要公网主机名） |
 
-要固定指纹、长期公开服务，使用 `tls=2` 和真实证书，并用 `--host` 让分享 URI 带上匹配的 `sni`：
+默认 `tls=1`（程序自签）。nw3 不接受 `tls=0`。
+
+Nowhere 2.2+ 与 nw3 默认校验证书，客户端不能跳过。自签 Portal 的分享 URI 会在拿得到指纹时写入 `pin=<sha256>`（64 位小写十六进制）。程序自签的证书每次 Portal 重启都会重新生成，pin 随之改变，重启后需要把新的分享 URI 发给客户端（它本身不会过期，变的是 pin）。1.x 客户端改为跳过证书校验。
+
+openssl 自签把证书落在磁盘上，pin 跨重启稳定，适合长期公开服务：
 
 ```bash
 sudo ./oh-nowhere.sh \
@@ -228,9 +238,8 @@ sudo ./oh-nowhere.sh \
   --type portal \
   --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
   --port 2077 \
-  --tls 2 \
-  --cert /etc/nowhere/cert.pem \
-  --keyfile /etc/nowhere/key.pem \
+  --cert-mode openssl \
+  --self-sign-days 398 \
   --host relay.example \
   --lang zh
 ```
@@ -239,16 +248,99 @@ sudo ./oh-nowhere.sh \
 portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem&out=direct&morph=1
 ```
 
+脚本把 pin 存到 `/etc/nowhere/pin.conf`，`--status` 会显示证书来源、pin 前缀与到期时间，到期前 30 天开始告警。证书由 `openssl` 生成，脚本会在缺失时尝试安装它。
+
+用自己的证书时用 `--cert-mode custom` 加 `--cert` / `--keyfile`：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --config \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --cert-mode custom \
+  --cert /etc/nowhere/cert.pem \
+  --keyfile /etc/nowhere/key.pem \
+  --host relay.example \
+  --lang zh
+```
+
+### acme.sh 证书
+
+`--cert-mode acme` 通过 [acme.sh](https://github.com/acmesh-official/acme.sh) 向公共 CA 申请真实证书，客户端按公共证书链校验，与「自定义证书」完全一致：`tls=2`、无 `pin=`、`sni=` 取自 `--host`。域名必须已经解析到本机。
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --cert-mode acme \
+  --acme-domain relay.example.com \
+  --acme-email me@example.com \
+  --host relay.example.com \
+  --lang zh
+```
+
+```text
+portal://a1b2c3d4e5f60718293a4b5c6d7e8f90@*:2077?tls=2&crt=/etc/nowhere/acme/relay.example.com_ecc/fullchain.cer&key=/etc/nowhere/acme/relay.example.com_ecc/relay.example.com.key&out=direct&morph=1
+```
+
+只写 `--acme-domain` 即隐含 `--cert-mode acme`；不写时域名默认取分享主机。默认验证方式是 `--acme-challenge http`，它跑在 acme.sh 自己的 standalone 模式里：签发那几秒由 acme.sh 自己占用 80 端口，因此 **80 端口必须空闲**，且系统里要有 `socat`（或 `python3`）。脚本会检查这两项，并在包管理器允许时自动安装 `socat`。80 端口被占用的机器请改用 DNS 插件：
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --acme-domain relay.example.com \
+  --acme-dns dns_cf \
+  --host relay.example.com \
+  --lang zh
+```
+
+`--acme-dns` 隐含 `--acme-challenge dns`。脚本从不接触 DNS 服务商凭据——请事先把它们导出到 acme.sh 自己的环境里（见 [acme.sh DNS API 文档](https://github.com/acmesh-official/acme.sh/wiki/dnsapi)）。
+
+该模式会安装的东西：
+
+| 路径 | 用途 |
+| ---- | ---- |
+| `~/.acme.sh/acme.sh` | acme.sh 本体，按需用 `curl` 安装 |
+| `/etc/nowhere/acme/<域名>_ecc/` | 签发出来的 ECDSA P-256 证书链与私钥 |
+| `/etc/nowhere/acme-reload.sh` | `--reloadcmd` 钩子；续期成功后重启服务 |
+| `/etc/nowhere/acme-renew.sh` | cron 入口；本地读取到期时间，只在续期窗口内才执行 `acme.sh --renew`，并记录到 `/etc/nowhere/acme-renew.log` |
+| `/etc/nowhere/certmode.conf` | 旁车文件，记录 `mode=` / `domain=` / `autorenew=` / `renewdays=`；单看 `tls=2` 的 URL 分不出 `acme` 与 `custom` |
+| root crontab 里的 `17 3 * * *`（或 `/etc/cron.d/nowhere-acme`） | 每日一次的到期检查，带 `# oh-nowhere acme.sh auto-renew` 标记 |
+
+自动续期默认开启，但**不是**每天重签。任务每天醒一次，用 `openssl` 读已签发证书的 `notAfter`，只有当证书进入续期窗口——即剩余有效期不足 `--acme-renew-days` 天，默认 30——才调用 `acme.sh --renew`。Let's Encrypt 证书有效期 90 天，用默认值时大约还剩两个月就开始续，其余时间只花一次本地 `openssl` 调用，不产生任何网络流量。想更晚续就设 `--acme-renew-days 14`，想更早续就设更大的数。
+
+```bash
+sudo ./oh-nowhere.sh \
+  --install \
+  --type portal \
+  --key a1b2c3d4e5f60718293a4b5c6d7e8f90 \
+  --port 2077 \
+  --acme-domain relay.example.com \
+  --acme-renew-days 14 \
+  --host relay.example.com \
+  --lang zh
+```
+
+用 `--cert-mode acme` 重新配置时，除非再次传入 `--acme-renew-days`，否则沿用 `certmode.conf` 里已记录的窗口；在窗口之外则直接保留现有证书链，不会白耗一次重复证书额度。`--acme-auto-renew no` 则完全不装 cron，需要时用 `--renew-cert`（菜单项 `renew`）手动续期，它会强制调用 `acme.sh --renew` 并重启服务。`--status` 会显示证书来源、ACME 域名、续期计划与窗口。`--uninstall` 会一并删掉 cron 条目和两个钩子。
+
+如果 acme.sh 签不出来——域名不对、80 端口被占、没有网络——安装会直接报错退出，不写任何文件。排除原因后重跑即可，另外三种证书来源不受影响。
+
 ## 客户端分享 URI
 
-菜单项 11 / `--share` 在 Portal 上为每个载体各输出一条 `nowhere://`。二维码优先编码 TCP 那条。自签（`tls=1`）且能取到指纹时，链接里带 `pin=`：
+菜单项 11 / `--share` 在 Portal 上为每个载体各输出一条 `nowhere://`。二维码优先编码 TCP 那条。自签且能取到指纹时，链接里带 `pin=`：
 
 ```text
 nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=tcp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
 nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=udp&morph=1&pin=8f14e45fceea167a5a36dedd4bea2543b7e6d5c4a3f2918273645a0b1c2d3e4f#Nowhere-US-203
 ```
 
-`tls=2` 且设置了分享主机时，链接带 `sni`，不依赖 `pin`。`pin=` 的含义与重启后失效，见上文「TLS 模式」。
+`pin=` 与 `sni=` 按证书来源二选一：openssl 自签带 `pin=`（pin 模式下二进制不校验主机名，因此不发 `sni=`）；自定义证书没有 pin，靠 `--host` 让链接带上匹配的 `sni`。`pin=` 的含义与程序自签重启后失效，见上文「TLS 模式」。
 
 * 主机优先 `/etc/nowhere/host.conf`（或 `--host`），否则用检测到的公网 IP
 * 节点名以 percent-encoded `#fragment` 附在末尾；用 `--name` 设置（默认 `Nowhere-<国家>-<IP首段>`，存于 `/etc/nowhere/name.conf`）
@@ -262,7 +354,9 @@ nowhere://a1b2c3d4e5f60718293a4b5c6d7e8f90@203.0.113.10:2077?net=udp&morph=1&pin
 
 菜单项 **5** 按字段编辑已保存的运行 URL。输入编号只改那一项，直接回车或输入 `q` 保存并自动重启。
 
-nw3 下列出的字段包括：密钥、端口、载体（Vector 只有一个 `tcp` 或 `udp`）、TLS、`morph`、Portal 出口 `out=`（`direct` / `socks` / `egress`）、SOCKS 上游、Vector 的 `in=`、Egress 的主机 / UDP 端口 / SNI / pin、分享地址、节点名称。编辑器不管理的参数（如 `rate` / `etar` / `dial` / `log`）原样保留。
+nw3 下列出的字段包括：密钥、端口、载体（Vector 只有一个 `tcp` 或 `udp`）、证书来源、`morph`、Portal 出口 `out=`（`direct` / `socks` / `egress`）、SOCKS 上游、Vector 的 `in=`、Egress 的主机 / UDP 端口 / SNI / pin、分享地址、节点名称。编辑器不管理的参数（如 `rate` / `etar` / `dial` / `log`）原样保留。
+
+证书来源一项取代了原来的 TLS 项：选 `openssl` 会当场重新签发证书（有效期与 SAN 都可改）并更新 pin，选 `program` 清掉 pin，选 `custom` 时可继续改 `crt` / `keyfile` 路径（改路径同样会清掉 pin）。选 `acme` 则会把整套 acme.sh 流程重跑一遍——域名、邮箱、验证方式、自动续期都会逐项询问——并把 `crt` / `keyfile` 指向签发出来的证书链。
 
 端口会对照本地监听表（`ss` / `sockstat` / `netstat`）。已被占用时给出警告，确认后才能使用。交互安装与配置同样做这项检查。
 
@@ -323,9 +417,19 @@ sudo ./oh-nowhere.sh [选项]
 | `--tcp-port <端口>` | TLS/TCP 端口（Nowhere 2.0+，可与 UDP 不同） |
 | `--udp-port <端口>` | QUIC/UDP 端口（Nowhere 2.0+；nw3 Egress 也用它） |
 | `--morph <0\|1>` | TLS/QUIC 线形伪装（Nowhere 2.0+；2.x 默认 `0` 且不写入，nw3 默认 `1` 并写入） |
-| `--tls <1\|2>` | Portal TLS 模式，默认 `1`（nw3 不接受 `0`） |
-| `--cert <路径>` | `tls=2` 时的证书路径 |
-| `--keyfile <路径>` | `tls=2` 时的私钥路径 |
+| `--tls <1\|2>` | Portal TLS 模式，默认 `1`（nw3 不接受 `0`）；由 `--cert-mode` 决定，`--tls` 仅作只读回显 |
+| `--cert-mode <program\|openssl\|custom\|acme>` | 证书来源：`program`（`tls=1`）、`openssl`（`tls=2` + pin）、`custom`（`tls=2` + `--cert`/`--keyfile`）、`acme`（`tls=2` 走 acme.sh，无 pin），也接受 `1` / `2` / `3` / `4` |
+| `--self-sign-days <天数>` | openssl 自签的有效期，1–36500，默认 `398` |
+| `--cert-san <CSV>` | openssl 自签的 SAN，如 `DNS:relay.example,IP:203.0.113.10`；默认含分享主机、公网 IP 与 loopback |
+| `--cert <路径>` | `custom` 证书来源时的证书路径 |
+| `--keyfile <路径>` | `custom` 证书来源时的私钥路径 |
+| `--acme-domain <域名>` | acme.sh 证书域名；隐含 `--cert-mode acme`，默认取 `--host` |
+| `--acme-email <邮箱>` | acme.sh 账户邮箱（可选，用于到期提醒） |
+| `--acme-challenge <http\|dns>` | ACME 验证方式，默认 `http`（需 80 端口空闲）；`dns` 需配合 `--acme-dns` |
+| `--acme-dns <插件>` | acme.sh DNS 插件，如 `dns_cf`；隐含 `--acme-challenge dns` |
+| `--acme-auto-renew <yes\|no>` | acme.sh 证书的自动续期任务，默认 `yes` |
+| `--acme-renew-days <n>` | 剩余有效期 n 天内时才续期，1-89，默认 `30` |
+| `--renew-cert` | 立即续期当前证书（`acme` 执行 `acme.sh --renew`，`openssl` 重新自签并更换 pin） |
 | `--socks <地址>` | Vector 入站 SOCKS；在 nw3 Portal 上等价于 `--out socks` |
 | `--out <direct\|socks\|egress>` | Portal 出口（nw3；默认 `direct`） |
 | `--next <key@host:port>` | Portal 原生上游，仅 2.x（与 `--socks` 互斥；nw3 直接拒绝） |
@@ -376,6 +480,12 @@ sudo ./oh-nowhere.sh --config --lang zh
 sudo ./oh-nowhere.sh --share --lang zh
 ```
 
+立即续期当前证书（acme.sh 或 openssl 来源）：
+
+```bash
+sudo ./oh-nowhere.sh --renew-cert --lang zh
+```
+
 启动 TUI（2.x）或状态快照（nw3）：
 
 ```bash
@@ -404,12 +514,16 @@ sudo ./oh-nowhere.sh --uninstall --lang zh
 /etc/nowhere/url.conf
 /etc/nowhere/host.conf
 /etc/nowhere/name.conf
+/etc/nowhere/pin.conf
+/etc/nowhere/certmode.conf
 /etc/systemd/system/nowhere.service
 /etc/init.d/nowhere
 /usr/local/etc/rc.d/nowhere
 ```
 
-运行 URL 在 `/etc/nowhere/url.conf`。分享主机在 `/etc/nowhere/host.conf`。节点名在 `/etc/nowhere/name.conf`。
+运行 URL 在 `/etc/nowhere/url.conf`。分享主机在 `/etc/nowhere/host.conf`。节点名在 `/etc/nowhere/name.conf`。openssl 档的 pin 在 `/etc/nowhere/pin.conf`，`certmode.conf` 记录当前生效的是哪一种 `tls=2` 来源（`program` 不需要文件，证书由二进制自己生成）。
+
+使用 `--cert-mode acme` 时，脚本还会在 `/etc/nowhere/` 下维护 `acme/`、`acme-reload.sh`、`acme-renew.sh` 与 `acme-renew.log`，并在 root crontab 或 `/etc/cron.d/nowhere-acme` 里留一条带标记的条目。详见上文「TLS 模式」。
 
 启动器读取 `url.conf` 再执行 Nowhere。若里面仍是 `nowhere://`：nw3 转成 `vector://` 并补 `in=127.0.0.1:1080`；更早的版本补 `socks=`。nw3 二进制遇到仍带 2.x 参数的 Portal / Vector URL 时，启动器报错退出，避免那些参数被静默忽略。
 
@@ -473,7 +587,7 @@ Debian / Ubuntu 使用 `qrencode`；Alpine 使用 `python3` + `py3-qrcode`；Fre
 
 * 使用脚本生成的密钥。nw3 三种角色都是恰好 32 位小写十六进制；2.2 Portal 为 32–64 位。不合规的 Portal 会拒绝启动。
 * 不要公开 Portal 的运行 URL。
-* 长期公网服务使用 `tls=2`、有效证书和 `--host`。自签模式下必须分发 `pin=`，且 Portal 每次重启后指纹都会变，见「TLS 模式」。
+* 长期公网服务使用 `--cert-mode openssl`（pin 跨重启稳定）或 `--cert-mode custom` 加真实证书与 `--host`。程序自签的 pin 每次重启都会变，见「TLS 模式」。
 * Vector 的入站 SOCKS 若暴露在本机以外，需要认证和网络限制。
 * 生产环境运行前请审阅脚本。
 
