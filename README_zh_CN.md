@@ -43,6 +43,8 @@
 
 ## 快速开始
 
+要由 Agent 自行完成部署，按 [docs/agent-deploy.md](docs/agent-deploy.md) 执行。
+
 下载脚本：
 
 ```bash

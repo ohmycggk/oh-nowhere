@@ -43,6 +43,8 @@ Recent GNU Linux assets require **glibc 2.39** (Ubuntu 24.04 / Debian 13). Debia
 
 ## Quick Start
 
+Agents that deploy a node on their own should follow [docs/agent-deploy.md](docs/agent-deploy.md).
+
 Download the script:
 
 ```bash
